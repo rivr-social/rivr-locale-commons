@@ -116,7 +116,7 @@ export async function setGroupPassword(
       type: "setGroupPassword",
       actorId,
       targetAgentId: groupId,
-      payload: {},
+      payload: { newPassword },
     },
     async () => {
   // Authorization is enforced server-side regardless of client UI role assumptions.
@@ -199,7 +199,7 @@ export async function removeGroupPassword(
       type: "removeGroupPassword",
       actorId,
       targetAgentId: groupId,
-      payload: {},
+      payload: { groupId },
     },
     async () => {
   // Authorization is enforced server-side to prevent privilege bypass.
@@ -365,7 +365,7 @@ export async function updateGroupJoinSettings(
       type: "updateGroupJoinSettings",
       actorId,
       targetAgentId: groupId,
-      payload: {},
+      payload: { joinSettings },
     },
     async () => {
   if (!(await isGroupAdmin(actorId, groupId))) {
@@ -532,7 +532,7 @@ export async function updateGroupMembershipPlans(
       type: "updateGroupMembershipPlans",
       actorId,
       targetAgentId: groupId,
-      payload: {},
+      payload: { membershipPlans },
     },
     async () => {
   if (!(await isGroupAdmin(actorId, groupId))) {

@@ -1,123 +1,319 @@
 import { NextResponse } from "next/server";
 import { getInstanceConfig } from "@/lib/federation/instance-config";
 import { resolveHomeInstance } from "@/lib/federation/resolution";
+import { authorizeFederationRequest } from "@/lib/federation-auth";
+import { runWithFederationExecutionContext } from "@/lib/federation/execution-context";
+import { toggleFollowAgent, toggleJoinGroup } from "@/app/actions/interactions/social";
+import {
+  toggleLikeOnTarget,
+  setReactionOnTarget,
+  toggleThankOnTarget,
+} from "@/app/actions/interactions/reactions";
+import { createBookingAction } from "@/app/actions/interactions/bookings";
+import { sendThanksTokenAction } from "@/app/actions/interactions/thanks-tokens";
+import { setEventRsvp, applyToJob } from "@/app/actions/interactions/events-jobs";
+import { createMutualAssetAction, bookAssetAction } from "@/app/actions/interactions/assets";
+import {
+  sendVoucherAction,
+  createVoucherAction,
+  claimVoucherAction,
+  redeemVoucherAction,
+} from "@/app/actions/interactions/vouchers";
+import { postCommentAction } from "@/app/actions/resource-creation/comments";
+import { createPostResource } from "@/app/actions/resource-creation/posts";
+import {
+  syncEventTicketOfferings,
+  createEventResource,
+} from "@/app/actions/resource-creation/events";
+import {
+  challengeGroupAccess,
+  revokeGroupMembership,
+  renewGroupMembership,
+  requestGroupMembership,
+  reviewGroupJoinRequest,
+} from "@/app/actions/group-access";
+import {
+  setGroupPassword,
+  removeGroupPassword,
+  updateGroupJoinSettings,
+  updateGroupMembershipPlans,
+} from "@/app/actions/group-admin";
 
-/** Mutation types that this endpoint recognizes for future dispatch. */
 const KNOWN_MUTATION_TYPES = [
-  "createGroupResource",
-  "updateGroupResource",
-  "deleteGroupResource",
+  "toggleFollowAgent",
+  "toggleJoinGroup",
+  "toggleLikeOnTarget",
+  "setReactionOnTarget",
+  "toggleThankOnTarget",
+  "createBookingAction",
+  "sendThanksTokenAction",
+  "setEventRsvp",
+  "applyToJob",
+  "createMutualAssetAction",
+  "bookAssetAction",
+  "sendVoucherAction",
+  "createVoucherAction",
+  "claimVoucherAction",
+  "redeemVoucherAction",
+  "postCommentAction",
   "createPostResource",
   "createEventResource",
-  "toggleJoinGroup",
-  "createOffering",
-  "updateAgent",
-  "createComment",
-  "toggleReaction",
+  "syncEventTicketOfferings",
+  "challengeGroupAccess",
+  "revokeGroupMembership",
+  "renewGroupMembership",
+  "requestGroupMembership",
+  "reviewGroupJoinRequest",
+  "setGroupPassword",
+  "removeGroupPassword",
+  "updateGroupJoinSettings",
+  "updateGroupMembershipPlans",
 ] as const;
 
-/**
- * POST /api/federation/mutations
- *
- * Receives forwarded mutations from remote instances.
- * Phase 1: Validates headers, verifies target agent locality, logs the mutation.
- * Phase 2 (TODO): Full dispatch to server actions with parameter shape mapping.
- */
+type MutationRequestBody = {
+  type?: string;
+  actorId?: string;
+  targetAgentId?: string;
+  payload?: unknown;
+};
+
 export async function POST(request: Request) {
   const config = getInstanceConfig();
 
   try {
-    // 1. Validate instance identity headers
+    const authorization = await authorizeFederationRequest(request);
+    if (!authorization.authorized) {
+      return NextResponse.json(
+        { success: false, error: authorization.reason ?? "Authentication required" },
+        { status: 401 },
+      );
+    }
+
     const remoteInstanceId = request.headers.get("X-Instance-Id");
     const remoteInstanceSlug = request.headers.get("X-Instance-Slug");
 
     if (!remoteInstanceId || !remoteInstanceSlug) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Missing required headers: X-Instance-Id, X-Instance-Slug",
-        },
-        { status: 400 }
+        { success: false, error: "Missing required headers: X-Instance-Id, X-Instance-Slug" },
+        { status: 400 },
       );
     }
 
-    // 2. Parse mutation body
-    const body = await request.json();
+    const body = (await request.json()) as MutationRequestBody;
     const { type, actorId, targetAgentId, payload } = body;
 
     if (!type || !actorId || !targetAgentId) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Missing required fields: type, actorId, targetAgentId",
-        },
-        { status: 400 }
+        { success: false, error: "Missing required fields: type, actorId, targetAgentId" },
+        { status: 400 },
       );
     }
 
-    // 3. Verify the targetAgentId belongs to this instance
     const homeInstance = await resolveHomeInstance(targetAgentId);
-
     if (!homeInstance.isLocal) {
       return NextResponse.json(
         {
           success: false,
           error: `Agent ${targetAgentId} is not local to this instance. Home instance: ${homeInstance.slug} (${homeInstance.nodeId})`,
         },
-        { status: 421 } // Misdirected Request
+        { status: 421 },
       );
     }
 
-    // 4. Log the accepted mutation for audit trail
     console.log(
-      `[federation/mutations] Accepted mutation from instance ${remoteInstanceSlug} (${remoteInstanceId}):`,
+      `[federation/mutations] Executing mutation from ${remoteInstanceSlug} (${remoteInstanceId}):`,
       {
         type,
         actorId,
         targetAgentId,
-        payloadKeys: payload ? Object.keys(payload) : [],
-      }
+        payloadKeys: payload && typeof payload === "object" ? Object.keys(payload as object) : [],
+      },
     );
 
-    // 5. Check if this is a known mutation type
-    const isKnownType = (KNOWN_MUTATION_TYPES as readonly string[]).includes(type);
-
-    // TODO Phase 2: Full dispatch implementation.
-    // Server actions have varied parameter shapes (some take FormData, some
-    // take plain objects with different arg positions). Full dispatch requires
-    // a normalized adapter layer that maps the JSON payload to each action's
-    // expected signature. For now, accept and acknowledge the mutation.
-    //
-    // Dispatch map (Phase 2):
-    //   "createGroupResource"  -> createGroupResource(formData)
-    //   "updateGroupResource"  -> updateGroupResource(formData)
-    //   "deleteGroupResource"  -> deleteGroupResource(resourceId)
-    //   "createPostResource"   -> createPostResource(formData)
-    //   "createEventResource"  -> createEventResource(formData)
-    //   "toggleJoinGroup"      -> toggleJoinGroup(groupId)
-    //   etc.
-    //
-    // Each adapter would need to reconstruct the expected input from the
-    // JSON payload, including re-creating FormData where required.
-
+    const result = await dispatchLegacyMutation(type, actorId, targetAgentId, payload);
     return NextResponse.json({
-      success: true,
-      phase: "forwarding-stub",
+      success: result.success,
+      data: result,
+      knownType: (KNOWN_MUTATION_TYPES as readonly string[]).includes(type),
       instanceId: config.instanceId,
-      accepted: true,
-      knownType: isKnownType,
-      message: isKnownType
-        ? `Mutation type '${type}' recognized. Dispatch pending Phase 2 implementation.`
-        : `Mutation type '${type}' not in known dispatch map. Logged for review.`,
     });
   } catch (error) {
     console.error("[federation/mutations] Error processing mutation:", error);
     return NextResponse.json(
       {
         success: false,
-        error: "Failed to process mutation",
+        error: error instanceof Error ? error.message : "Failed to process mutation",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
+}
+
+async function dispatchLegacyMutation(
+  type: string,
+  actorId: string,
+  targetAgentId: string,
+  payload: unknown,
+): Promise<unknown> {
+  const record = asRecord(payload);
+
+  return runWithFederationExecutionContext(actorId, async () => {
+    switch (type) {
+      case "toggleFollowAgent":
+        return toggleFollowAgent(targetAgentId);
+      case "toggleJoinGroup":
+        return toggleJoinGroup(
+          targetAgentId,
+          record.type === "ring" ? "ring" : "group",
+        );
+      case "toggleLikeOnTarget":
+        return toggleLikeOnTarget(
+          readString(record, "targetId", targetAgentId),
+          readTargetType(record, "targetType"),
+        );
+      case "setReactionOnTarget":
+        return setReactionOnTarget(
+          readString(record, "targetId", targetAgentId),
+          readTargetType(record, "targetType"),
+          readReactionType(record, "reactionType"),
+        );
+      case "toggleThankOnTarget":
+        return toggleThankOnTarget(
+          readString(record, "targetId", targetAgentId),
+          readTargetType(record, "targetType"),
+        );
+      case "createBookingAction":
+        return createBookingAction({
+          offeringId: requireString(record, "offeringId"),
+          slotDate: requireString(record, "slotDate"),
+          slotTime: requireString(record, "slotTime"),
+          notes: optionalString(record, "notes"),
+        });
+      case "sendThanksTokenAction":
+        return sendThanksTokenAction(
+          requireString(record, "tokenId"),
+          readString(record, "recipientId", targetAgentId),
+          optionalString(record, "message"),
+          optionalString(record, "contextId"),
+        );
+      case "setEventRsvp":
+        return setEventRsvp(
+          requireString(record, "eventId"),
+          readRsvpStatus(record, "status"),
+        );
+      case "applyToJob":
+        return applyToJob(requireString(record, "jobId"));
+      case "createMutualAssetAction":
+        return createMutualAssetAction(record as Parameters<typeof createMutualAssetAction>[0]);
+      case "bookAssetAction":
+        return bookAssetAction(record as Parameters<typeof bookAssetAction>[0]);
+      case "sendVoucherAction":
+        return sendVoucherAction(
+          requireString(record, "voucherId"),
+          readString(record, "recipientId", targetAgentId),
+          optionalString(record, "message"),
+          optionalString(record, "contextId"),
+        );
+      case "createVoucherAction":
+        return createVoucherAction(record as Parameters<typeof createVoucherAction>[0]);
+      case "claimVoucherAction":
+        return claimVoucherAction(requireString(record, "voucherId"));
+      case "redeemVoucherAction":
+        return redeemVoucherAction(requireString(record, "voucherId"));
+      case "postCommentAction":
+        return postCommentAction(
+          requireString(record, "resourceId"),
+          requireString(record, "content"),
+          optionalString(record, "parentCommentId"),
+        );
+      case "createPostResource":
+        return createPostResource(record as Parameters<typeof createPostResource>[0]);
+      case "createEventResource":
+        return createEventResource(record as Parameters<typeof createEventResource>[0]);
+      case "syncEventTicketOfferings":
+        await syncEventTicketOfferings(record as Parameters<typeof syncEventTicketOfferings>[0]);
+        return { success: true };
+      case "challengeGroupAccess":
+        return challengeGroupAccess(targetAgentId, requireString(record, "password"));
+      case "revokeGroupMembership":
+        return revokeGroupMembership(targetAgentId, requireString(record, "memberId"));
+      case "renewGroupMembership":
+        return renewGroupMembership(targetAgentId);
+      case "requestGroupMembership":
+        return requestGroupMembership(
+          targetAgentId,
+          (record.options as Parameters<typeof requestGroupMembership>[1]) ?? undefined,
+        );
+      case "reviewGroupJoinRequest":
+        return reviewGroupJoinRequest(
+          targetAgentId,
+          requireString(record, "requestId"),
+          readDecision(record, "decision"),
+          optionalString(record, "adminNotes"),
+        );
+      case "setGroupPassword":
+        return setGroupPassword(targetAgentId, requireString(record, "newPassword"));
+      case "removeGroupPassword":
+        return removeGroupPassword(targetAgentId);
+      case "updateGroupJoinSettings":
+        return updateGroupJoinSettings(
+          targetAgentId,
+          record.joinSettings as Parameters<typeof updateGroupJoinSettings>[1],
+        );
+      case "updateGroupMembershipPlans":
+        return updateGroupMembershipPlans(targetAgentId, record.membershipPlans);
+      default:
+        return {
+          success: false,
+          error: `Unsupported mutation type: ${type}`,
+        };
+    }
+  });
+}
+
+function asRecord(payload: unknown): Record<string, unknown> {
+  return payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+}
+
+function requireString(payload: Record<string, unknown>, key: string): string {
+  const value = payload[key];
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`Missing required payload field: ${key}`);
+  }
+  return value;
+}
+
+function optionalString(payload: Record<string, unknown>, key: string): string | undefined {
+  const value = payload[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readString(payload: Record<string, unknown>, key: string, fallback: string): string {
+  const value = payload[key];
+  return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+
+function readTargetType(payload: Record<string, unknown>, key: string): "post" | "resource" | "event" {
+  const value = payload[key];
+  return value === "resource" || value === "event" ? value : "post";
+}
+
+function readReactionType(payload: Record<string, unknown>, key: string): "like" | "boost" | "insightful" | "curious" | "celebrate" | "thank" {
+  const value = payload[key];
+  return value === "boost" ||
+    value === "insightful" ||
+    value === "curious" ||
+    value === "celebrate" ||
+    value === "thank"
+    ? value
+    : "like";
+}
+
+function readRsvpStatus(payload: Record<string, unknown>, key: string): "going" | "interested" | "none" {
+  const value = payload[key];
+  return value === "interested" || value === "none" ? value : "going";
+}
+
+function readDecision(payload: Record<string, unknown>, key: string): "approved" | "rejected" {
+  return payload[key] === "rejected" ? "rejected" : "approved";
 }
