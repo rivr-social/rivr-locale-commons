@@ -161,9 +161,14 @@ export async function POST(request: Request) {
       },
     );
 
-    const result = await dispatchLegacyMutation(type, actorId, targetAgentId, payload);
+    const result = (await dispatchLegacyMutation(
+      type,
+      actorId,
+      targetAgentId,
+      payload,
+    )) as { success?: boolean; [key: string]: unknown };
     return NextResponse.json({
-      success: result.success,
+      success: result?.success ?? true,
       data: result,
       knownType: (KNOWN_MUTATION_TYPES as readonly string[]).includes(type),
       instanceId: config.instanceId,
@@ -206,7 +211,7 @@ async function dispatchLegacyMutation(
         return setReactionOnTarget(
           readString(record, "targetId", targetAgentId),
           readTargetType(record, "targetType"),
-          readReactionType(record, "reactionType"),
+          readReactionType(record, "reactionType") as Parameters<typeof setReactionOnTarget>[2],
         );
       case "toggleThankOnTarget":
         return toggleThankOnTarget(

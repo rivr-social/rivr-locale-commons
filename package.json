@@ -134,6 +134,9 @@
       "onnxruntime-node",
       "unrs-resolver",
       "@node-rs/bcrypt"
-    ]
+    ],
+    "overrides": {
+      "cesium": "1.139.1"
+    }
   }
 }
