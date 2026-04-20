@@ -38,6 +38,10 @@ import {
   updateGroupJoinSettings,
   updateGroupMembershipPlans,
 } from "@/app/actions/group-admin";
+import {
+  AUTHORITY_GUARD_REASONS,
+  checkAuthorityForActor,
+} from "@/lib/federation/authority-guard";
 
 const KNOWN_MUTATION_TYPES = [
   "toggleFollowAgent",
@@ -106,6 +110,33 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, error: "Missing required fields: type, actorId, targetAgentId" },
         { status: 400 },
+      );
+    }
+
+    // Peer-side authority enforcement:
+    // Mutations are sensitive operations. If the actor's home has been revoked
+    // (or superseded by a successor claim), reject before dispatching. This
+    // path does not carry an asserted homeBaseUrl, so we rely on the lower-
+    // information `checkAuthorityForActor` variant which looks up the latest
+    // authority events by actorId and always re-reads the DB (no TTL cache).
+    const authorityCheck = await checkAuthorityForActor(actorId);
+    if (!authorityCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            authorityCheck.reason === AUTHORITY_GUARD_REASONS.SUPERSEDED_BY_SUCCESSOR
+              ? "Actor home has been superseded by a successor authority claim"
+              : "Actor home has been revoked",
+          errorCode:
+            authorityCheck.reason === AUTHORITY_GUARD_REASONS.SUPERSEDED_BY_SUCCESSOR
+              ? "HOME_AUTHORITY_SUPERSEDED"
+              : "HOME_AUTHORITY_REVOKED",
+          ...(authorityCheck.newHomeBaseUrl
+            ? { newHomeBaseUrl: authorityCheck.newHomeBaseUrl }
+            : {}),
+        },
+        { status: 403 },
       );
     }
 
