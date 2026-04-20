@@ -2,11 +2,17 @@
  * Login page for `/auth/login`.
  *
  * Purpose:
- * - Provides email + password authentication via the `loginAction` server action.
- * - Redirects to `/` on successful login and refreshes the router cache.
+ * - Federation-aware entry point: tries the federated-SSO path first
+ *   (global issues a signed assertion → this peer verifies + sets the
+ *   `rivr_remote_viewer` cookie) and falls back to local NextAuth
+ *   credentials when the user does not yet have a global
+ *   `identity_authority` row (migration period for issues #101/#21).
+ * - Local credentials path stays intact so users on peers that haven't
+ *   been rolled onto federated SSO are unaffected.
  *
  * Rendering: Client Component (`"use client"`).
- * Data requirements: None on mount; submits credentials via `loginAction`.
+ * Data requirements: None on mount; submits credentials via
+ *   `federatedLoginAction`, which internally falls back to `loginAction`.
  * Auth: This is the entry point for authentication; no auth gate.
  * Metadata: No `metadata` export; metadata is inherited from the layout.
  *
@@ -27,39 +33,69 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { EyeOff, Eye, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import {
+  EyeOff,
+  Eye,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  Globe,
+} from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { loginAction } from "@/app/actions/auth";
+import { federatedLoginAction } from "@/app/actions/federated-login";
 import { safeRedirectUrl } from "@/lib/safe-redirect";
 
 /**
  * Client-rendered login form component.
  *
- * @returns Login card with email/password fields and a sign-in button.
+ * @returns Login card with email/password fields, optional home-instance
+ *   hint, and a sign-in button that tries federated SSO with local
+ *   credentials fallback.
  */
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [homeBaseUrlHint, setHomeBaseUrlHint] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [showHomeHint, setShowHomeHint] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [authBadge, setAuthBadge] = useState<{
+    method: "federated-sso" | "local-credentials";
+    homeBaseUrl?: string;
+  } | null>(null);
   const searchParams = useSearchParams();
   const callbackUrl = safeRedirectUrl(searchParams.get("callbackUrl"));
   const isVerified = searchParams.get("verified") === "true";
 
-  /** Handles form submission: validates, calls `loginAction`, then redirects on success. */
+  /**
+   * Handles form submission: calls `federatedLoginAction` which tries
+   * federated SSO first and falls back to local credentials on 401 so
+   * users whose identity_authority row hasn't been provisioned yet
+   * continue to authenticate locally during the signup migration.
+   */
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setAuthBadge(null);
     setIsLoading(true);
 
     try {
-      const result = await loginAction(email, password);
+      const result = await federatedLoginAction({
+        email,
+        password,
+        homeBaseUrlHint: homeBaseUrlHint || undefined,
+      });
       if (!result.success) {
         setError(result.error || "Invalid email or password.");
         return;
       }
+
+      setAuthBadge({
+        method: result.method,
+        homeBaseUrl: result.homeBaseUrl,
+      });
 
       // Full page reload ensures the root layout re-runs auth() server-side,
       // passing the fresh session to SessionProvider so avatar/user state
@@ -94,6 +130,16 @@ export default function LoginPage() {
               <div className="flex items-start gap-2 rounded-md bg-green-500/10 p-3 mb-4">
                 <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
                 <p className="text-sm text-green-600">Email verified successfully! You can now log in.</p>
+              </div>
+            )}
+
+            {authBadge && authBadge.method === "federated-sso" && (
+              <div className="flex items-start gap-2 rounded-md bg-primary/10 p-3 mb-4">
+                <Globe className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                <p className="text-sm text-primary">
+                  Authenticated via{" "}
+                  {authBadge.homeBaseUrl ?? "your home instance"}
+                </p>
               </div>
             )}
 
@@ -158,6 +204,36 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
+
+              {showHomeHint ? (
+                <div className="space-y-2">
+                  <Label htmlFor="homeBaseUrlHint">Home instance (optional)</Label>
+                  <Input
+                    id="homeBaseUrlHint"
+                    type="url"
+                    placeholder="https://rivr.camalot.me"
+                    value={homeBaseUrlHint}
+                    onChange={(e) => setHomeBaseUrlHint(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="url"
+                    inputMode="url"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Only needed if you know your sovereign home. Leave blank to
+                    let us route you automatically.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowHomeHint(true)}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Have a home instance?
+                  </button>
+                </div>
+              )}
 
               <div className="flex justify-end">
                 <Link href="/auth/forgot-password" className="text-xs text-muted-foreground hover:text-foreground">
