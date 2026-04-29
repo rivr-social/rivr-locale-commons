@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { getInstanceConfig } from "@/lib/federation/instance-config";
 import { resolveHomeInstance } from "@/lib/federation/resolution";
-import { authorizeFederationRequest } from "@/lib/federation-auth";
+import {
+  authorizeFederationRequest,
+  bindAuthorizedFederationActor,
+} from "@/lib/federation-auth";
 import { runWithFederationExecutionContext } from "@/lib/federation/execution-context";
 import { toggleFollowAgent, toggleJoinGroup } from "@/app/actions/interactions/social";
 import {
@@ -113,6 +116,14 @@ export async function POST(request: Request) {
       );
     }
 
+    const actorBinding = bindAuthorizedFederationActor(authorization, actorId);
+    if (!actorBinding.authorized || !actorBinding.actorId) {
+      return NextResponse.json(
+        { success: false, error: actorBinding.reason ?? "Actor authorization failed" },
+        { status: 403 },
+      );
+    }
+
     // Peer-side authority enforcement:
     // Mutations are sensitive operations. If the actor's home has been revoked
     // (or superseded by a successor claim), reject before dispatching. This
@@ -155,7 +166,7 @@ export async function POST(request: Request) {
       `[federation/mutations] Executing mutation from ${remoteInstanceSlug} (${remoteInstanceId}):`,
       {
         type,
-        actorId,
+        actorId: actorBinding.actorId,
         targetAgentId,
         payloadKeys: payload && typeof payload === "object" ? Object.keys(payload as object) : [],
       },
@@ -163,7 +174,7 @@ export async function POST(request: Request) {
 
     const result = (await dispatchLegacyMutation(
       type,
-      actorId,
+      actorBinding.actorId,
       targetAgentId,
       payload,
     )) as { success?: boolean; [key: string]: unknown };
