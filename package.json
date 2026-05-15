@@ -1,6 +1,7 @@
 {
   "name": "rivr-locale-commons",
   "version": "0.1.0",
+  "packageManager": "pnpm@8.15.9",
   "description": "Standalone Rivr locale commons app",
   "private": true,
   "type": "module",
