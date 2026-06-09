@@ -172,16 +172,55 @@ export async function POST(request: Request) {
       },
     );
 
+    const isKnownType = (KNOWN_MUTATION_TYPES as readonly string[]).includes(type);
+
+    // Honesty contract (rivr-group#9): mutation types without a real dispatch
+    // path must NOT claim acceptance. Returning a non-2xx with accepted:false
+    // lets the forwarding instance surface a real error to the acting user
+    // instead of silently dropping their write.
+    if (!isKnownType) {
+      return NextResponse.json(
+        {
+          success: false,
+          accepted: false,
+          instanceId: config.instanceId,
+          knownType: false,
+          errorCode: "UNKNOWN_MUTATION_TYPE",
+          error: `Mutation type '${type}' is not in the known dispatch map.`,
+        },
+        { status: 400 },
+      );
+    }
+
     const result = (await dispatchLegacyMutation(
       type,
       actorBinding.actorId,
       targetAgentId,
       payload,
-    )) as { success?: boolean; [key: string]: unknown };
+    )) as { success?: boolean; accepted?: boolean; error?: string; [key: string]: unknown };
+
+    // Defensive 501 path: a type listed in KNOWN_MUTATION_TYPES but missing
+    // from the dispatch switch must not claim success either.
+    if (result?.accepted === false) {
+      return NextResponse.json(
+        {
+          success: false,
+          accepted: false,
+          instanceId: config.instanceId,
+          knownType: true,
+          errorCode: "MUTATION_NOT_IMPLEMENTED",
+          error:
+            result.error ??
+            `Mutation type '${type}' is recognized but not yet implemented on this instance.`,
+        },
+        { status: 501 },
+      );
+    }
+
     return NextResponse.json({
       success: result?.success ?? true,
       data: result,
-      knownType: (KNOWN_MUTATION_TYPES as readonly string[]).includes(type),
+      knownType: true,
       instanceId: config.instanceId,
     });
   } catch (error) {
@@ -310,9 +349,13 @@ async function dispatchLegacyMutation(
       case "updateGroupMembershipPlans":
         return updateGroupMembershipPlans(targetAgentId, record.membershipPlans);
       default:
+        // Known-but-unwired mutation type: surfaced by POST as a 501 with
+        // MUTATION_NOT_IMPLEMENTED (unknown types are rejected with 400
+        // before dispatch).
         return {
           success: false,
-          error: `Unsupported mutation type: ${type}`,
+          accepted: false,
+          error: `Mutation type '${type}' is recognized but not yet implemented on this instance.`,
         };
     }
   });
