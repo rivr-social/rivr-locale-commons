@@ -32,7 +32,6 @@ import {
   Trophy,
   User,
   Users,
-  Globe,
   Briefcase,
 } from "lucide-react";
 import { executeCommand } from "@/app/actions/commands";
@@ -211,7 +210,7 @@ const COMMANDS: CommandDefinition[] = [
     id: "marketplace",
     label: "Marketplace",
     description: "Open marketplace listings and purchases.",
-    path: "/marketplace",
+    path: "/?tab=marketplace",
     group: "Navigate",
     icon: ShoppingBag,
     aliases: ["marketplace", "shop", "listings", "/marketplace"],
@@ -246,22 +245,13 @@ const COMMANDS: CommandDefinition[] = [
     aliases: ["people", "members", "residents", "/people"],
   },
   {
-    id: "rings",
-    label: "Rings",
-    description: "Browse locale rings and circles.",
-    path: "/rings",
-    group: "Locale",
-    icon: Globe,
-    aliases: ["rings", "circles", "/rings"],
-  },
-  {
     id: "jobs",
     label: "Jobs",
     description: "Browse locale job listings and opportunities.",
-    path: "/jobs",
+    path: "/?tab=gigs",
     group: "Locale",
     icon: Briefcase,
-    aliases: ["jobs", "opportunities", "work", "employment", "/jobs"],
+    aliases: ["jobs", "opportunities", "work", "employment", "/jobs", "gigs"],
   },
   // ---- Explore ----
   {
