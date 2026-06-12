@@ -8,6 +8,7 @@ import {
   nodePeers,
   nodes,
   resources,
+  type ResourceEmbed,
   type NewFederationEventRecord,
   type NewNodePeerRecord,
   type NewNodeRecord,
@@ -1134,6 +1135,17 @@ export async function importFederationEvents(params: {
           externalEntityId: externalId,
         };
 
+        // Carry the post/resource body and inline embeds from the upsert
+        // payload. Without these the mirror row materializes with only a
+        // title — the author's text and any linked offering/voucher embed
+        // (e.g. a marketplace listing link) are dropped, so a federated
+        // post lands in the feed empty. `embeds` is NOT NULL with a `[]`
+        // default; coerce a missing/invalid array to `[]`.
+        const content = typeof payload.content === "string" ? payload.content : null;
+        const embeds = Array.isArray(payload.embeds)
+          ? (payload.embeds as ResourceEmbed[])
+          : [];
+
         // True upsert by stable local id: re-imports update the existing
         // mirror row in place rather than no-op'ing on conflict. This is
         // what makes peer edits to the same entity propagate here without
@@ -1147,6 +1159,8 @@ export async function importFederationEvents(params: {
             type: type as typeof resources.$inferInsert.type,
             ownerId: localOwnerId,
             visibility: event.visibility,
+            content,
+            embeds,
             description: typeof payload.description === "string" ? payload.description : null,
             metadata: metadataWithAttribution,
             tags: Array.isArray(payload.tags) ? (payload.tags as string[]) : [],
@@ -1158,6 +1172,8 @@ export async function importFederationEvents(params: {
               type: type as typeof resources.$inferInsert.type,
               ownerId: localOwnerId,
               visibility: event.visibility,
+              content,
+              embeds,
               description: typeof payload.description === "string" ? payload.description : null,
               metadata: metadataWithAttribution,
               tags: Array.isArray(payload.tags) ? (payload.tags as string[]) : [],
