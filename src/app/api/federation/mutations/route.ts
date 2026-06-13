@@ -35,6 +35,7 @@ import {
   requestGroupMembership,
   reviewGroupJoinRequest,
 } from "@/app/actions/group-access";
+import { isGroupMember } from "@/lib/permissions";
 import {
   setGroupPassword,
   removeGroupPassword,
@@ -247,11 +248,24 @@ async function dispatchLegacyMutation(
     switch (type) {
       case "toggleFollowAgent":
         return toggleFollowAgent(targetAgentId);
-      case "toggleJoinGroup":
-        return toggleJoinGroup(
-          targetAgentId,
-          record.type === "ring" ? "ring" : "group",
-        );
+      case "toggleJoinGroup": {
+        const joinType = record.type === "ring" ? "ring" : "group";
+        // Groups honor the approval queue: a non-member's join routes through
+        // the approval-aware requestGroupMembership (which files a pending
+        // request for approval-required groups) instead of an instant toggle
+        // join. Existing members (leave toggle) and rings keep the direct
+        // toggle. Closes the federation back-door past the approval gate.
+        if (joinType === "group") {
+          const membership = await isGroupMember(actorId, targetAgentId);
+          if (!membership.isMember) {
+            return requestGroupMembership(
+              targetAgentId,
+              (record.options as Parameters<typeof requestGroupMembership>[1]) ?? undefined,
+            );
+          }
+        }
+        return toggleJoinGroup(targetAgentId, joinType);
+      }
       case "toggleLikeOnTarget":
         return toggleLikeOnTarget(
           readString(record, "targetId", targetAgentId),
