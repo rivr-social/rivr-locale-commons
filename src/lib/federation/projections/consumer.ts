@@ -3,6 +3,7 @@ import { federationEvents } from "@/db/schema";
 import { gt, eq, and } from "drizzle-orm";
 import type { ProjectionHandler } from "./types";
 import type { DomainEvent } from "../domain-events";
+import { agentCardProjection } from "./agent-cards";
 
 /**
  * Event consumer that polls federation_events and dispatches
@@ -91,8 +92,6 @@ export class EventConsumer {
 /** Singleton consumer with default projections registered */
 export function createDefaultConsumer(): EventConsumer {
   const consumer = new EventConsumer();
-
-  // Import and register projections
-  // Using dynamic import to avoid circular deps
+  consumer.register(agentCardProjection);
   return consumer;
 }
