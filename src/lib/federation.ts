@@ -187,14 +187,43 @@ function payloadSourceMatchesPeer(
   return true;
 }
 
+/**
+ * Map an instance-config `instanceType` to the `node_role` vocabulary.
+ *
+ * The two enums diverge: instance types are
+ * global/person/group/locale/region while node roles are
+ * group/locale/basin/global. Region instances federate as `basin`-role
+ * nodes, and person instances (which have no dedicated node role) federate
+ * under the `group` role.
+ */
+function instanceTypeToNodeRole(instanceType: string): NodeRole {
+  switch (instanceType) {
+    case "global":
+      return "global";
+    case "locale":
+      return "locale";
+    case "group":
+      return "group";
+    case "region":
+      return "basin";
+    case "person":
+      return "group";
+    default:
+      return DEFAULT_NODE_ROLE;
+  }
+}
+
 function getNodeSlug(): string {
-  // Slug is a stable node identifier used in routing and peer lookup.
-  return process.env.NODE_SLUG?.trim() || "global-host";
+  // Slug is a stable node identifier used in routing and peer lookup. It must
+  // agree with the instance identity (`INSTANCE_SLUG`) so that the local node
+  // row created/looked-up here matches the slug peers use in x-peer-slug and
+  // the slug the registry advertises. `NODE_SLUG` remains an explicit override.
+  return process.env.NODE_SLUG?.trim() || getInstanceConfig().instanceSlug;
 }
 
 function getNodeDisplayName(): string {
   // Human-readable display value shown in federation admin views.
-  return process.env.NODE_DISPLAY_NAME?.trim() || "Global Host";
+  return process.env.NODE_DISPLAY_NAME?.trim() || getInstanceConfig().instanceSlug;
 }
 
 function getNodeRole(): NodeRole {
@@ -203,7 +232,10 @@ function getNodeRole(): NodeRole {
   if (role && ["group", "locale", "basin", "global"].includes(role)) {
     return role;
   }
-  return DEFAULT_NODE_ROLE;
+  // Derive from the configured instance type so the local node row's role
+  // reflects what kind of instance this actually is, instead of defaulting
+  // every unconfigured sovereign to "global".
+  return instanceTypeToNodeRole(getInstanceConfig().instanceType);
 }
 
 function getBaseUrl(): string {

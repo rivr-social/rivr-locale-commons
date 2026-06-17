@@ -124,43 +124,162 @@
     {
       "idx": 17,
       "version": "7",
+      "when": 1772016400000,
+      "tag": "0015_resource_taxonomy_alignment",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1772026400000,
+      "tag": "0016_voucher_first_class",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1772036400000,
+      "tag": "0017_location_search_overture",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1772046400000,
+      "tag": "0018_array_indexes_gin",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1772056400000,
+      "tag": "0019_updated_at_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1772066400000,
+      "tag": "0020_schema_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1772076400000,
+      "tag": "0021_connect_payout_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1772086400000,
+      "tag": "0022_thanks_token_resource_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1772096400000,
+      "tag": "0022b_vector_384_dimensions",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
       "when": 1772394813696,
       "tag": "0023_matrix_integration",
       "breakpoints": true
     },
     {
-      "idx": 18,
+      "idx": 27,
+      "version": "7",
+      "when": 1772404813696,
+      "tag": "0024_social_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1772414813696,
+      "tag": "0025_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1772424813696,
+      "tag": "0026_peermesh_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
       "version": "7",
       "when": 1773000000000,
       "tag": "0027_thanks_token_demurrage",
       "breakpoints": true
     },
     {
-      "idx": 19,
+      "idx": 31,
+      "version": "7",
+      "when": 1773010000000,
+      "tag": "0028_basic_membership_tier",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1773020000000,
+      "tag": "0029_contract_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1773030000000,
+      "tag": "0030_personas",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1773040000000,
+      "tag": "0031_capital_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
       "version": "7",
       "when": 1776038400000,
       "tag": "0032_authority_event_cache",
       "breakpoints": true
     },
     {
-      "idx": 20,
+      "idx": 36,
       "version": "7",
       "when": 1776556800000,
       "tag": "0033_link_previews",
       "breakpoints": true
     },
     {
-      "idx": 21,
+      "idx": 37,
       "version": "7",
       "when": 1777118400000,
       "tag": "0034_peer_smtp_config",
       "breakpoints": true
     },
     {
-      "idx": 22,
+      "idx": 38,
       "version": "7",
       "when": 1781913600000,
       "tag": "0035_manifest_references",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1782000000000,
+      "tag": "0036_federation_sequence_columns",
       "breakpoints": true
     }
   ]
