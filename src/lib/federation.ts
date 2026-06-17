@@ -258,9 +258,21 @@ export async function ensureLocalNode(ownerAgentId?: string) {
   const slug = getNodeSlug();
   const configuredInstanceId = getInstanceConfig().instanceId;
 
-  const existing = await db.query.nodes.findFirst({
+  // Resolve the local self-node row. Prefer the slug match, but fall back to
+  // the row anchored on the configured instance id. A self-node bootstrapped
+  // before NODE_SLUG/INSTANCE_SLUG agreed (e.g. under the legacy "global-host"
+  // default, or seeded with a basin slug while INSTANCE_SLUG names the
+  // instance) carries the configured id but a stale slug; without this
+  // fallback ensureLocalNode would miss it and attempt an insert that collides
+  // on the primary key (nodes_pkey), 500ing every federation export.
+  const bySlug = await db.query.nodes.findFirst({
     where: eq(nodes.slug, slug),
   });
+  const existing =
+    bySlug ??
+    (await db.query.nodes.findFirst({
+      where: eq(nodes.id, configuredInstanceId),
+    }));
 
   if (existing) {
     if (existing.id !== configuredInstanceId) {
@@ -275,14 +287,39 @@ export async function ensureLocalNode(ownerAgentId?: string) {
           `(and its FK references) to match INSTANCE_ID, or fix the env.`,
       );
     }
+
+    // Reconcile the id-anchored self-node's external identity to the configured
+    // values when it has drifted (stale slug/role/displayName/baseUrl from an
+    // earlier bootstrap). Only the row that already owns the configured id is
+    // safe to relabel this way; a slug-only match with a foreign id is left
+    // for the operator (logged above).
+    const needsIdentityReconcile =
+      existing.id === configuredInstanceId &&
+      (existing.slug !== slug ||
+        existing.role !== getNodeRole() ||
+        existing.baseUrl !== getBaseUrl());
     // Backfill keys for legacy nodes so all exported events can be signed.
-    if (!existing.privateKey || !existing.publicKey) {
-      const keyPair = generateNodeKeyPair();
+    const needsKeys = !existing.privateKey || !existing.publicKey;
+
+    if (needsIdentityReconcile || needsKeys) {
+      const keyPair = needsKeys ? generateNodeKeyPair() : null;
       const [updated] = await db
         .update(nodes)
         .set({
-          publicKey: keyPair.publicKey,
-          privateKey: keyPair.privateKey,
+          ...(needsIdentityReconcile
+            ? {
+                slug,
+                role: getNodeRole(),
+                displayName: getNodeDisplayName(),
+                baseUrl: getBaseUrl(),
+              }
+            : {}),
+          ...(keyPair
+            ? {
+                publicKey: keyPair.publicKey,
+                privateKey: keyPair.privateKey,
+              }
+            : {}),
           updatedAt: new Date(),
         })
         .where(eq(nodes.id, existing.id))
