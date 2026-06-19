@@ -1704,3 +1704,67 @@ export const peerSmtpConfig = pgTable(
 
 export type PeerSmtpConfigRecord = typeof peerSmtpConfig.$inferSelect;
 export type NewPeerSmtpConfigRecord = typeof peerSmtpConfig.$inferInsert;
+
+/**
+ * Owner-configurable policy for cross-instance SSO visitors.
+ *
+ * Single-row-per-instance (keyed on instance_id unique index). Controls
+ * whether non-owner federated visitors are auto-signed-in after landing via
+ * /api/federation/sso/land, which extra capabilities they hold beyond the
+ * implicit `read` baseline, how long their session lasts, and whether landings
+ * are appended to federated_visit_log.
+ */
+export const federatedVisitorSettings = pgTable(
+  'federated_visitor_settings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    instanceId: uuid('instance_id').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    allowedCapabilities: jsonb('allowed_capabilities').$type<string[]>().notNull().default([]),
+    sessionTtlMinutes: integer('session_ttl_minutes').notNull().default(30),
+    recordVisits: boolean('record_visits').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('federated_visitor_settings_instance_id_idx').on(table.instanceId),
+  ],
+);
+
+export type FederatedVisitorSettingsRecord = typeof federatedVisitorSettings.$inferSelect;
+export type NewFederatedVisitorSettingsRecord = typeof federatedVisitorSettings.$inferInsert;
+
+/**
+ * Append-only record of cross-instance SSO landings.
+ *
+ * When the owner enables `recordVisits` in federated_visitor_settings, the SSO
+ * lander (/api/federation/sso/land) appends one row per visitor landing. Stores
+ * the referral path, home instance, granted capability scope, and a few
+ * low-sensitivity request signals. Never updated — always inserted.
+ */
+export const federatedVisitLog = pgTable(
+  'federated_visit_log',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    instanceId: uuid('instance_id').notNull(),
+    visitorActorId: uuid('visitor_actor_id').notNull(),
+    isOwner: boolean('is_owner').notNull().default(false),
+    homeBaseUrl: text('home_base_url'),
+    globalIssuerBaseUrl: text('global_issuer_base_url'),
+    landingPath: text('landing_path'),
+    referrer: text('referrer'),
+    visitorName: text('visitor_name'),
+    userAgent: text('user_agent'),
+    grantedScope: jsonb('granted_scope').$type<string[]>().notNull().default([]),
+    authMethod: text('auth_method').notNull().default('federated-sso'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('federated_visit_log_instance_id_idx').on(table.instanceId),
+    index('federated_visit_log_visitor_actor_id_idx').on(table.visitorActorId),
+    index('federated_visit_log_created_at_idx').on(table.createdAt),
+  ],
+);
+
+export type FederatedVisitLogRecord = typeof federatedVisitLog.$inferSelect;
+export type NewFederatedVisitLogRecord = typeof federatedVisitLog.$inferInsert;

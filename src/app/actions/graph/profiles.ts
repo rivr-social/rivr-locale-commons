@@ -34,15 +34,17 @@ import { isUuid } from "./types";
  * Fetches profile data (agent + owned resources + recent activity) for a visible agent.
  *
  * @param agentId Profile owner agent id.
+ * @param viewerIdOverride When provided, treat this id as the viewing actor
+ *   instead of resolving from the NextAuth session. MCP/autobot self-view
+ *   callers pass the owner id so they are never gated as anonymous.
  * @returns Profile bundle, or `null` when inaccessible/missing.
- * @throws {Error} Throws `"Unauthorized"` when no authenticated user is present.
  * @example
  * ```ts
  * const profile = await fetchProfileData(agentId);
  * ```
  */
-export async function fetchProfileData(agentId: string) {
-  const actorId = await tryActorId();
+export async function fetchProfileData(agentId: string, viewerIdOverride?: string) {
+  const actorId = viewerIdOverride !== undefined ? viewerIdOverride : await tryActorId();
   if (actorId && !(await canViewAgent(actorId, agentId))) return null;
 
   const [agent, resources, feed] = await Promise.all([
@@ -76,7 +78,7 @@ export async function fetchProfileData(agentId: string) {
 
   const visibleResources = actorId
     ? await filterViewableResources(actorId, resources)
-    : resources;
+    : await filterPubliclyCrawlableResources(resources);
 
   const visibleObjectAgents = actorId
     ? await filterViewableAgents(actorId, objectAgentsRaw)
@@ -144,25 +146,46 @@ export async function fetchProfileData(agentId: string) {
  * resources with owner agent data embedded so `resourceToPost` can produce
  * complete Post objects.
  *
+ * Visibility filtering is applied BEFORE the limit slice so private or
+ * locale-only posts never consume an anonymous viewer's page budget.
+ *
  * @param userId Agent UUID of the user whose posts to fetch.
  * @param limit Max posts to return. Defaults to `30`.
+ * @param viewerId Resolved viewing actor id, or `null` for anonymous. When
+ *   omitted (undefined) the function falls back to trying the NextAuth session
+ *   for callers that cannot cheaply resolve it.
  * @returns Serialized post resources with owner data.
  */
 export async function fetchUserPosts(
   userId: string,
-  limit = 30
+  limit = 30,
+  viewerId?: string | null,
 ): Promise<{ posts: SerializedResource[]; owner: SerializedAgent | null }> {
   if (!isUuid(userId)) return { posts: [], owner: null };
 
+  // Fetch a larger pool so visibility filtering does not starve the limit.
+  const fetchLimit = limit * 4;
+
   const [postResources, noteResources, ownerAgent] = await Promise.all([
-    getResourcesByOwnerAndType(userId, "post", limit),
-    getResourcesByOwnerAndType(userId, "note", limit),
+    getResourcesByOwnerAndType(userId, "post", fetchLimit),
+    getResourcesByOwnerAndType(userId, "note", fetchLimit),
     getAgent(userId),
   ]);
 
-  const combined = [...postResources, ...noteResources]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, limit);
+  const rawCombined = [...postResources, ...noteResources].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  // Resolve the effective viewer when the caller did not supply one.
+  const resolvedViewer =
+    viewerId !== undefined ? viewerId : await tryActorId();
+
+  // Filter BEFORE slicing so private posts never eat visible-post budget.
+  const filtered = resolvedViewer
+    ? await filterViewableResources(resolvedViewer, rawCombined)
+    : await filterPubliclyCrawlableResources(rawCombined);
+
+  const combined = filtered.slice(0, limit);
 
   return {
     posts: combined.map(serializeResource),
