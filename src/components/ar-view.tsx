@@ -314,9 +314,10 @@ export default function ARView({ items, onBack }: ARViewProps) {
     const scene = sceneRef.current
     const loader = new GLTFLoader()
     const currentModels = modelsRef.current
+    let cancelled = false
 
     for (const item of items) {
-      if (!item.geo?.lat || !item.geo?.lng) continue
+      if (!Number.isFinite(item.geo?.lat) || !Number.isFinite(item.geo?.lng)) continue
 
       const pos = geoToScenePosition(
         item.geo.lat,
@@ -340,8 +341,14 @@ export default function ARView({ items, onBack }: ARViewProps) {
       // Already loaded — just update position
       const existing = currentModels.get(item.id)
       if (existing) {
-        existing.position.copy(pos)
-        continue
+        const renderedModelUrl = existing.userData.mapItem?.modelUrl
+        if (renderedModelUrl === item.modelUrl) {
+          existing.position.copy(pos)
+          existing.userData.mapItem = item
+          continue
+        }
+        scene.remove(existing)
+        currentModels.delete(item.id)
       }
 
       if (item.modelUrl) {
@@ -349,6 +356,7 @@ export default function ARView({ items, onBack }: ARViewProps) {
         loader.load(
           item.modelUrl,
           (gltf) => {
+            if (cancelled) return
             const model = gltf.scene
             model.scale.setScalar(MODEL_SCALE)
             model.position.copy(pos)
@@ -358,6 +366,7 @@ export default function ARView({ items, onBack }: ARViewProps) {
           },
           undefined,
           () => {
+            if (cancelled) return
             // GLB load failed — add fallback sphere
             addFallbackMarker(scene, item, pos, currentModels)
           },
@@ -375,6 +384,10 @@ export default function ARView({ items, onBack }: ARViewProps) {
         scene.remove(obj)
         currentModels.delete(id)
       }
+    }
+
+    return () => {
+      cancelled = true
     }
   }, [items, userPosition])
 
@@ -566,7 +579,7 @@ export default function ARView({ items, onBack }: ARViewProps) {
   /* ── Nearby items count ── */
   const nearbyCount = userPosition
     ? items.filter((item) => {
-        if (!item.geo?.lat || !item.geo?.lng) return false
+        if (!Number.isFinite(item.geo?.lat) || !Number.isFinite(item.geo?.lng)) return false
         const pos = geoToScenePosition(
           item.geo.lat,
           item.geo.lng,

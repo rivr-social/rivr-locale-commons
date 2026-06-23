@@ -95,7 +95,7 @@ export default function LocaleMapPage() {
 
     if (activeFilter === "all" || activeFilter === "group") {
       groups.forEach((group) => {
-        const geo = parseGeo(group.location)
+        const geo = group.geo || parseGeo(group.location)
         if (!geo) return
         if (searchQuery && !group.name.toLowerCase().includes(searchQuery.toLowerCase())) return
         items.push({

@@ -135,6 +135,33 @@ function locationToText(value: unknown): string | undefined {
   return undefined;
 }
 
+function toFiniteCoordinate(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+/** Preserve stable group coordinates independently from display-address normalization. */
+function readGeoCoordinates(value: unknown): { lat: number; lng: number } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const lat = toFiniteCoordinate(record.lat) ?? toFiniteCoordinate(record.latitude);
+  const lng =
+    toFiniteCoordinate(record.lng) ??
+    toFiniteCoordinate(record.lon) ??
+    toFiniteCoordinate(record.longitude);
+  if (lat !== null && lng !== null && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+    return { lat, lng };
+  }
+  if (record.coordinates && typeof record.coordinates === "object") {
+    return readGeoCoordinates(record.coordinates);
+  }
+  return undefined;
+}
+
 function resolveBasinId(
   meta: Record<string, unknown>,
   parentId: string | null,
@@ -262,6 +289,7 @@ export function agentToGroup(agent: SerializedAgent): Group {
     type: groupType as GroupType,
     parentGroupId: agent.parentId ?? undefined,
     modelUrl: (meta.modelUrl as string) ?? undefined,
+    geo: readGeoCoordinates(meta.geo) ?? readGeoCoordinates(meta.location),
   };
 }
 

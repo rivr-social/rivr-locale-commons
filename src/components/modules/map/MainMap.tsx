@@ -652,7 +652,17 @@ const MainMap: React.FC<MainMapProps> = ({
 
   // Stable fingerprint to prevent unnecessary entity rebuilds (prevents flashing)
   const itemFingerprint = useMemo(
-    () => items.map((i) => i.id).sort().join(","),
+    () => items
+      .map((item) => [
+        item.id,
+        item.geo.lat,
+        item.geo.lng,
+        item.type ?? "",
+        item.name ?? "",
+        item.modelUrl ?? "",
+      ].join("\u001f"))
+      .sort()
+      .join("\u001e"),
     [items]
   );
   const lastItemFingerprint = useRef("");

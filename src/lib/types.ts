@@ -606,6 +606,7 @@ export type Group = {
   flowPasses?: FlowPass[] // Flow passes for automatic discounts
   membershipTiers?: string[] // Available membership tiers
   modelUrl?: string // GLB 3D model URL for map markers
+  geo?: { lat: number; lng: number } // Stable map coordinates from group metadata
 }
 
 /** Ring specialization of `Group` with treasury fields and required ring type. */

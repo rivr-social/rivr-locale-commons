@@ -73,7 +73,7 @@ type CacheEntry<T> = { v: number; ts: number; data: T };
 type GraphSyncMessage = { type: "cache-write" | "invalidate"; key: string; ts: number };
 
 /** Session cache schema version; bumping invalidates stale payload shapes. */
-const GRAPH_CACHE_VERSION = 1;
+const GRAPH_CACHE_VERSION = 2;
 /** Default cache TTL for list views. */
 const DEFAULT_TTL_MS = 1000 * 60 * 5;
 /** Foreground refresh cadence for live-ish data. Relaxed in dev to reduce CPU churn. */
