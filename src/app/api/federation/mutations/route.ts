@@ -35,6 +35,8 @@ import {
 } from "@/app/actions/interactions/vouchers";
 import { postCommentAction } from "@/app/actions/resource-creation/comments";
 import { createPostResource } from "@/app/actions/resource-creation/posts";
+import { updateResource, deleteResource } from "@/app/actions/resource-creation/lifecycle";
+import type { UpdateResourceInput } from "@/app/actions/resource-creation/types";
 import {
   syncEventTicketOfferings,
   createEventResource,
@@ -77,6 +79,8 @@ const KNOWN_MUTATION_TYPES = [
   "postCommentAction",
   "createPostResource",
   "createEventResource",
+  "updateResource",
+  "deleteResource",
   "syncEventTicketOfferings",
   "challengeGroupAccess",
   "revokeGroupMembership",
@@ -389,6 +393,15 @@ async function dispatchLegacyMutation(
         return createPostResource(record as Parameters<typeof createPostResource>[0]);
       case "createEventResource":
         return createEventResource(record as Parameters<typeof createEventResource>[0]);
+      // Cross-instance resource UPDATE/DELETE by a peer admin. The actor was
+      // already normalized to this instance's local id (resolveLocalActorId)
+      // and the whole switch runs in runWithFederationExecutionContext, so
+      // updateResource/deleteResource's own canModifyResource → hasGroupWriteAccess
+      // gate authorizes the resolved actor exactly like a local session.
+      case "updateResource":
+        return updateResource(record as unknown as UpdateResourceInput);
+      case "deleteResource":
+        return deleteResource(requireString(record, "resourceId"));
       case "syncEventTicketOfferings":
         await syncEventTicketOfferings(record as Parameters<typeof syncEventTicketOfferings>[0]);
         return { success: true };
