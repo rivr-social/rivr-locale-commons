@@ -21,7 +21,7 @@ import { updateFacade, emitDomainEvent, EVENT_TYPES } from "@/lib/federation/ind
 
 import {
   resolveAuthenticatedUserId,
-  hasGroupWriteAccess,
+  canPostToGroup,
   createResourceWithLedger,
 } from "./helpers";
 import type { ActionResult } from "./types";
@@ -199,7 +199,7 @@ export async function createPostResource(input: {
 
   if (input.groupId) {
     // Posting into a group requires explicit write access to prevent unauthorized publishing.
-    const allowed = await hasGroupWriteAccess(userId, input.groupId);
+    const allowed = await canPostToGroup(userId, input.groupId, "create");
     if (!allowed) {
       return {
         success: false,
@@ -216,7 +216,7 @@ export async function createPostResource(input: {
   // here with ownerId set to this instance's local group via withTargetOwner.
   const ownerId = input.ownerId ?? userId;
   if (ownerId !== userId) {
-    const allowedOwner = await hasGroupWriteAccess(userId, ownerId);
+    const allowedOwner = await canPostToGroup(userId, ownerId, "create");
     if (!allowedOwner) {
       return {
         success: false,
@@ -492,7 +492,7 @@ export async function createPostCommerceResource(input: {
   }
 
   if (input.groupId) {
-    const allowed = await hasGroupWriteAccess(userId, input.groupId);
+    const allowed = await canPostToGroup(userId, input.groupId, "create");
     if (!allowed) {
       return {
         success: false,

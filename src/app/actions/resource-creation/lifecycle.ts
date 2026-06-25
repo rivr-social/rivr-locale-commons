@@ -19,6 +19,7 @@ import { syncMurmurationsProfilesForActor } from "@/lib/murmurations";
 import {
   resolveAuthenticatedUserId,
   hasGroupWriteAccess,
+  canPostToGroup,
   canModifyResource,
   revalidateOwnerPaths,
   createResourceWithLedger,
@@ -554,7 +555,7 @@ export async function createLiveClassAction(input: {
     };
   }
 
-  const canWrite = await hasGroupWriteAccess(userId, input.groupId);
+  const canWrite = await canPostToGroup(userId, input.groupId, "create");
   if (!canWrite) {
     return {
       success: false,
@@ -737,7 +738,7 @@ export async function createDocumentResourceAction(input: {
     };
   }
 
-  const canWrite = await hasGroupWriteAccess(userId, input.groupId);
+  const canWrite = await canPostToGroup(userId, input.groupId, "create");
   if (!canWrite) {
     return {
       success: false,
