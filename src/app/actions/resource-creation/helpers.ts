@@ -15,6 +15,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { embedResource, scheduleEmbedding } from "@/lib/ai";
 import { syncMurmurationsProfilesForActor } from "@/lib/murmurations";
 import { ensureLocalNode, queueEntityExportEvents } from "@/lib/federation";
+import { isGroupAdmin } from "@/app/actions/group-admin";
 
 import type { ActionResult, CreateResourceInput } from "./types";
 import { GROUP_LIKE_OWNER_AGENT_TYPES } from "./types";
@@ -37,28 +38,13 @@ export async function resolveAuthenticatedUserId(): Promise<string | null> {
 
 export async function hasGroupWriteAccess(userId: string, groupId: string): Promise<boolean> {
   const [group] = await db
-    .select({ id: agents.id, metadata: agents.metadata })
+    .select({ id: agents.id })
     .from(agents)
     .where(and(eq(agents.id, groupId), inArray(agents.type, [...GROUP_LIKE_OWNER_AGENT_TYPES])))
     .limit(1);
 
   if (!group) return false;
-
-  const creatorId = ((group.metadata ?? {}) as Record<string, unknown>).creatorId;
-  if (typeof creatorId === "string" && creatorId === userId) return true;
-
-  const rows = await db.execute(sql`
-    SELECT id
-    FROM ledger
-    WHERE subject_id = ${userId}::uuid
-      AND object_id = ${groupId}::uuid
-      AND is_active = true
-      AND verb IN ('own', 'manage', 'join', 'belong')
-      AND (expires_at IS NULL OR expires_at > NOW())
-    LIMIT 1
-  `);
-
-  return (rows as Array<Record<string, unknown>>).length > 0;
+  return isGroupAdmin(userId, groupId);
 }
 
 export async function canModifyResource(userId: string, resourceId: string): Promise<{
