@@ -353,6 +353,37 @@ export type JoinQuestion = {
 
 export type GroupDiscoveryMode = "public" | "hidden"
 
+/** Visibility level controlling who can see a group tab. */
+export type TabVisibilityLevel = "public" | "members" | "admin" | "hidden"
+
+/** Canonical tab keys for the public group page (`/groups/[id]`). */
+export const GROUP_TAB_KEYS = [
+  "about", "feed", "events", "groups", "members", "documents",
+  "jobs", "marketplace", "governance", "badges", "stake", "press", "treasury",
+] as const
+export type GroupTabKey = (typeof GROUP_TAB_KEYS)[number]
+
+/**
+ * Default public visibility for each page tab. Org/group detail pages show
+ * About, Feed, Events, Members, and Press publicly; every other tab is
+ * admin-only until an admin opts to expose it.
+ */
+export const DEFAULT_TAB_VISIBILITY: Record<GroupTabKey, TabVisibilityLevel> = {
+  about: "public",
+  feed: "public",
+  events: "public",
+  members: "public",
+  press: "public",
+  groups: "admin",
+  documents: "admin",
+  jobs: "admin",
+  marketplace: "admin",
+  governance: "admin",
+  badges: "admin",
+  stake: "admin",
+  treasury: "admin",
+}
+
 /** Group join workflow configuration model. */
 export type GroupJoinSettings = {
   joinType: JoinType
