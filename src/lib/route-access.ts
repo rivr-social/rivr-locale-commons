@@ -6,6 +6,8 @@ const PUBLIC_PAGE_PATHS = new Set([
   "/search",
   "/calendar",
   "/manifest.webmanifest",
+  "/terms",
+  "/privacy",
 ]);
 
 const PUBLIC_PAGE_PREFIXES = [
