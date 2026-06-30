@@ -55,7 +55,14 @@ function resolveAdminKey(): string | undefined {
   return getEnv("NODE_ADMIN_KEY")?.trim() || undefined;
 }
 
-function secureEqual(a: string, b: string): boolean {
+/**
+ * Constant-time string comparison. Length mismatch short-circuits (token
+ * lengths are not themselves secret), but equal-length inputs are compared with
+ * `timingSafeEqual` so a byte-by-byte timing side-channel cannot recover a
+ * secret token. Exported for other secret/token compares (e.g. the static MCP
+ * token path).
+ */
+export function secureEqual(a: string, b: string): boolean {
   // `timingSafeEqual` requires equal-length inputs; return early to avoid exceptions.
   if (a.length !== b.length) return false;
   const aBuf = Buffer.from(a);
