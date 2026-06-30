@@ -18,6 +18,7 @@ import {
 } from "@/lib/queries/agents";
 import {
   getMarketplaceListings as queryMarketplaceListings,
+  getMarketplaceListingsInScope as queryMarketplaceListingsInScope,
   getResourcesByType,
 } from "@/lib/queries/resources";
 import {
@@ -312,7 +313,7 @@ export async function fetchAgentFeed(agentId: string, limit = 50) {
  *
  * @param scopeId Scope agent id (for example chapter/group id).
  * @param limit Max rows requested per category query.
- * @returns Scoped people/groups/events/places/projects buckets.
+ * @returns Scoped people/groups/events/places/projects/marketplace buckets.
  * @throws {Error} May throw on query/permission-check failures.
  * @example
  * ```ts
@@ -322,7 +323,7 @@ export async function fetchAgentFeed(agentId: string, limit = 50) {
 export async function fetchScopedHomeFeed(scopeId: string, limit = 20) {
   const actorId = await tryActorId();
 
-  const [people, groups, events, placesLegacy, placesChapter, placesBasin, placesCouncil, projects] = await Promise.all([
+  const [people, groups, events, placesLegacy, placesChapter, placesBasin, placesCouncil, projects, resourceListings] = await Promise.all([
     getAgentsInScope(scopeId, { type: "person", limit }),
     getAgentsInScope(scopeId, { type: "organization", limit }),
     getAgentsInScope(scopeId, { type: "event", limit }),
@@ -331,6 +332,7 @@ export async function fetchScopedHomeFeed(scopeId: string, limit = 20) {
     getPlacesByPlaceType("basin", limit),
     getPlacesByPlaceType("council", limit),
     getAgentsInScope(scopeId, { type: "project", limit }),
+    queryMarketplaceListingsInScope(scopeId, limit),
   ]);
 
   // Place records come from mixed queries; keep only nodes that belong to the requested scope.
@@ -353,11 +355,21 @@ export async function fetchScopedHomeFeed(scopeId: string, limit = 20) {
     return typeof metadata.placeType !== "string";
   });
 
+  // Build the scoped marketplace bucket the same way fetchHomeFeed does so the
+  // explore graph / scoped feeds keep offerings instead of dropping them under a
+  // locale/group scope.
+  const marketplaceItems = resourceListings.map((item) => ({
+    ...serializeResource(item as unknown as Resource),
+    ownerName: (item as { owner_name?: string }).owner_name ?? "",
+    ownerImage: (item as { owner_image?: string }).owner_image ?? "",
+  }));
+
   return {
     people: visiblePeople.map(serializeAgent),
     groups: filteredGroups.map(serializeAgent),
     events: visibleEvents.map(serializeAgent),
     places: visiblePlaces.map(serializeAgent),
     projects: visibleProjects.map(serializeAgent),
+    marketplace: marketplaceItems,
   };
 }

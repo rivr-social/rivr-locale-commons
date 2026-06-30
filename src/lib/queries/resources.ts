@@ -280,6 +280,44 @@ export async function getMarketplaceListings(limit = 50) {
 }
 
 /**
+ * Returns active marketplace listings owned by agents inside a hierarchy scope.
+ *
+ * Mirrors {@link getMarketplaceListings} (same listing/status filters and owner
+ * display fields) but constrains results to a scope via direct parent ownership
+ * or ancestor path membership — used by the scoped home feed so offerings do not
+ * vanish under a locale/group scope.
+ *
+ * @param scopeId Scope agent UUID.
+ * @param limit Max rows to return. Defaults to `50`.
+ * @returns Listing resources augmented with owner display fields.
+ * @throws Propagates database/connection errors from the underlying query.
+ * @example
+ * ```ts
+ * const listings = await getMarketplaceListingsInScope(scopeId, 20);
+ * ```
+ */
+export async function getMarketplaceListingsInScope(scopeId: string, limit = 50) {
+  const result = await db.execute(sql`
+    SELECT r.*, a.name as owner_name, a.image as owner_image
+    FROM resources r
+    JOIN agents a ON r.owner_id = a.id
+    WHERE r.deleted_at IS NULL
+    AND a.deleted_at IS NULL
+    AND r.metadata->>'listingType' IS NOT NULL
+    AND (r.metadata->>'status' IS NULL OR r.metadata->>'status' = 'active')
+    AND (a.parent_id = ${scopeId} OR ${scopeId} = ANY(a.path_ids))
+    ORDER BY r.created_at DESC
+    LIMIT ${limit}
+  `);
+
+  return (result as Record<string, unknown>[]).map((row) => ({
+    ...rowToResource(row),
+    owner_name: row.owner_name as string,
+    owner_image: row.owner_image as string | null,
+  }));
+}
+
+/**
  * Returns resources owned by agents inside a hierarchy scope.
  *
  * Scope matching includes direct parent ownership and ancestor path membership.

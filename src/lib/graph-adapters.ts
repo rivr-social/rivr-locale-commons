@@ -250,6 +250,13 @@ export function agentToGroup(agent: SerializedAgent): Group {
   else if (rawGroupType === "family") groupType = GroupType.Family;
   else if (rawGroupType === "organization" || rawGroupType === "org") groupType = GroupType.Organization;
   else if (rawGroupType === "group") groupType = GroupType.Group;
+  // When metadata carries no (or an unrecognized) groupType — e.g. federated
+  // orgs whose groupType is "community", or peers which have none at all — fall
+  // back to the agent's own type so orgs render as orgs instead of silently
+  // defaulting to Basic (E4/F1).
+  else if (agent.type === "organization" || agent.type === "org") groupType = GroupType.Organization;
+  else if (agent.type === "ring") groupType = GroupType.Ring;
+  else if (agent.type === "family") groupType = GroupType.Family;
 
   return {
     id: agent.id,
