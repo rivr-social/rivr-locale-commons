@@ -218,15 +218,13 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
       memberCount={members.length || group.memberCount || 0}
       tags={group.chapterTags ?? []}
       isAdmin={isGroupAdmin}
-      groupType={canonicalGroupType}
-      commissionBps={typeof groupMeta.commissionBps === "number" ? groupMeta.commissionBps as number : undefined}
     >
       <div className="flex items-center gap-2">
         {isGroupAdmin && (
           <Link href={`/groups/${group.id}/settings`}>
             <Button variant="outline" size="sm">
               <Settings className="h-4 w-4 mr-2" />
-              Edit Group
+              Group Settings
             </Button>
           </Link>
         )}
@@ -256,8 +254,6 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
 
   return (
     <AgentPageShell
-      backHref="/groups"
-      backLabel="Back to groups"
       header={header}
       structuredDataJson={structuredData ? serializeJsonLd(structuredData) : null}
     >

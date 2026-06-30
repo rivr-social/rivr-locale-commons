@@ -37,9 +37,6 @@ export interface FederationAuthResult {
   authorized: boolean;
   actorId?: string;
   peerNodeId?: string;
-  /** When true, the request was authenticated via peer-secret (server-to-server).
-   *  The originating instance is trusted to have authenticated the human actor. */
-  peerTrusted?: boolean;
   reason?: string;
 }
 
@@ -162,10 +159,47 @@ export async function authorizeFederationRequest(request: Request): Promise<Fede
   return { authorized: false, reason: "Authentication required" };
 }
 
-export function bindAuthorizedFederationActor(
+/**
+ * Bind a federation request to a specific actor, returning success only when
+ * the authentication layer can prove the request is allowed to act AS the
+ * requested actor.
+ *
+ * Two success paths:
+ *
+ *   1. **Session auth** — `authorization.actorId` matches `requestedActorId`
+ *      (the logged-in user is the actor).
+ *
+ *   2. **Peer-secret auth** — `authorization.peerNodeId` is set (a trusted
+ *      peer authenticated via `x-peer-slug` + `x-peer-secret`) AND the
+ *      requested actor has a `federation_entity_map` row binding it to that
+ *      peer. The peer may identify the actor in EITHER direction:
+ *        (2a) by this instance's LOCAL agent id
+ *             (`originNodeId = peerNodeId` AND `localEntityId = requestedActorId`)
+ *             — the original PeerMesh contract, where the forwarder already
+ *             translated to the receiver-local id; or
+ *        (2b) by the FORWARDER's local id for the actor — this instance's
+ *             `externalEntityId` (`originNodeId = peerNodeId` AND
+ *             `externalEntityId = requestedActorId`) — which is what sovereign
+ *             forwarders actually send when a human acts cross-instance (e.g.
+ *             posting AS a group on another instance).
+ *      In both cases the BOUND actor id is the receiver-LOCAL id (path 2b
+ *      returns the row's `localEntityId`). The lookup is strict and read-only —
+ *      it never mints a mapping, so an actor with no map row for this peer is
+ *      still rejected; identity is never invented.
+ *
+ * This REPLACES the previous `peerTrusted` shortcut (which accepted the
+ * body-provided `actorId` on the shared secret alone — any holder of the peer
+ * secret could write as any actor). Authority is now bound to the
+ * cryptographically-established peer relationship via the entity map.
+ *
+ * @param authorization - Output from `authorizeFederationRequest`.
+ * @param requestedActorId - The `actorId` field from the mutation body.
+ * @returns Binding result with the resolved local `actorId` on success.
+ */
+export async function bindAuthorizedFederationActor(
   authorization: FederationAuthResult,
   requestedActorId: string | undefined,
-): FederationActorBindingResult {
+): Promise<FederationActorBindingResult> {
   if (!authorization.authorized) {
     return { authorized: false, reason: authorization.reason ?? "Authentication required" };
   }
@@ -174,71 +208,66 @@ export function bindAuthorizedFederationActor(
     return { authorized: false, reason: "actorId is required" };
   }
 
-  // Peer-secret auth (server-to-server): the originating instance already
-  // authenticated the human user. Accept the body-provided actorId on trust.
-  if (authorization.peerTrusted) {
-    return { authorized: true, actorId: requestedActorId };
+  // Path 1: session auth — actor must match the session.
+  if (authorization.actorId) {
+    if (authorization.actorId !== requestedActorId) {
+      return {
+        authorized: false,
+        reason: "Authenticated actor does not match requested actorId.",
+      };
+    }
+    return { authorized: true, actorId: authorization.actorId };
   }
 
-  if (!authorization.actorId) {
-    return {
-      authorized: false,
-      reason: "Federation mutations require an actor-bound session or remote viewer token.",
-    };
-  }
-
-  if (authorization.actorId !== requestedActorId) {
-    return {
-      authorized: false,
-      reason: "Authenticated actor does not match requested actorId.",
-    };
-  }
-
-  return { authorized: true, actorId: authorization.actorId };
-}
-
-/**
- * Normalize a peer-supplied actor id to its local agent id.
- *
- * A single human has a distinct agent id on each sovereign instance (e.g.
- * Cameron is `aa29fa2d…` on his Camalot person instance but `ea079076…` — the
- * group creator/admin — on the Regen Hub group instance). When that person
- * acts cross-instance (posting AS a group they administer), the forwarding
- * instance sends ITS local actor id in the mutation body. Authority checks on
- * the receiver (`hasGroupWriteAccess`, ledger membership lookups) run against
- * the receiver's OWN graph, so they must see the receiver-local agent id, not
- * the remote one.
- *
- * `federation_entity_map` already holds this binding (origin peer node id +
- * external entity id → local entity id); it is populated by the materializer
- * during normal federation sync. This is a strict READ-ONLY lookup — unlike the
- * materializer's `resolveLocalEntityId`, it never mints a new mapping, because
- * an authority decision must not invent identity. When no mapping exists the
- * original id is returned unchanged so behavior is identical to today for
- * unmapped actors (the downstream authority check still gates the action).
- *
- * @param originNodeId The authenticated peer's node id (from peer-secret auth).
- * @param externalActorId The actor id as supplied by the forwarding instance.
- * @returns The receiver-local agent id when a mapping exists, else the input.
- */
-export async function resolveLocalActorId(
-  originNodeId: string | undefined,
-  externalActorId: string,
-): Promise<string> {
-  if (!originNodeId) return externalActorId;
-
-  const mapping = await db.query.federationEntityMap
-    .findFirst({
+  // Path 2: peer-secret auth — look up the entity map. The peer may identify
+  // the actor by EITHER this instance's local id (2a) or the forwarder's local
+  // id, i.e. our externalEntityId (2b). Either way we return the receiver-local
+  // id so downstream authority checks run against this instance's own graph.
+  if (authorization.peerNodeId) {
+    // (2a) requestedActorId is already this instance's local agent id.
+    const localMatch = await db.query.federationEntityMap.findFirst({
       where: and(
-        eq(federationEntityMap.originNodeId, originNodeId),
-        eq(federationEntityMap.externalEntityId, externalActorId),
+        eq(federationEntityMap.originNodeId, authorization.peerNodeId),
+        eq(federationEntityMap.localEntityId, requestedActorId),
+        eq(federationEntityMap.entityType, "agent"),
+      ),
+      columns: { id: true },
+    });
+
+    if (localMatch) {
+      return { authorized: true, actorId: requestedActorId };
+    }
+
+    // (2b) requestedActorId is the forwarder's local id (our externalEntityId);
+    // resolve it to the receiver-local agent id. Strict, read-only — no minting.
+    const externalMatch = await db.query.federationEntityMap.findFirst({
+      where: and(
+        eq(federationEntityMap.originNodeId, authorization.peerNodeId),
+        eq(federationEntityMap.externalEntityId, requestedActorId),
         eq(federationEntityMap.entityType, "agent"),
       ),
       columns: { localEntityId: true },
-    })
-    .catch(() => null);
+    });
 
-  return mapping?.localEntityId ?? externalActorId;
+    if (externalMatch) {
+      return { authorized: true, actorId: externalMatch.localEntityId };
+    }
+
+    return {
+      authorized: false,
+      reason:
+        "Peer is not authorized to act for this agent. No federation_entity_map row binds the peer to the requested actor.",
+    };
+  }
+
+  // Path 3: admin-key auth without a peer or session. Admin tokens are
+  // intentionally NOT allowed to bind an arbitrary actor because that would
+  // let one shared secret impersonate any user. Setup flows that need an
+  // unbound admin call should bypass this binding entirely.
+  return {
+    authorized: false,
+    reason: "Federation mutations require an actor-bound session or remote viewer token.",
+  };
 }
 
 /**
@@ -292,11 +321,11 @@ async function authorizePeerSecret(
     return { authorized: false, reason: "Invalid peer credentials" };
   }
 
-  // Peer-secret auth is server-to-server: the originating instance already
-  // authenticated the human actor. Return peerNodeId so the mutations endpoint
-  // can accept the body-provided actorId on trust (the forwarding instance is
-  // accountable for the identity claim).
-  return { authorized: true, peerNodeId: peerNode.id, peerTrusted: true };
+  // Peer-secret auth is server-to-server. Return peerNodeId so the mutations
+  // endpoint can bind the body-provided actorId to a federation_entity_map row
+  // scoped to THIS peer (see bindAuthorizedFederationActor). The peer secret
+  // alone no longer authorizes acting as an arbitrary actor.
+  return { authorized: true, peerNodeId: peerNode.id };
 }
 
 export interface FederationConfigValidation {

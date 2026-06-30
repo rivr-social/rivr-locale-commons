@@ -18,7 +18,6 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react"
-import { useRouter } from "next/navigation"
 import * as d3 from "d3"
 import {
   fetchGroupDetail,
@@ -31,6 +30,7 @@ import {
   resourceToPost,
   resourceToMarketplaceListing,
 } from "@/lib/graph-adapters"
+import { MapCard, type MapCardItem } from "@/components/map-card"
 import {
   GRAPH_CATEGORY_COLORS,
   GRAPH_CATEGORY_RADII,
@@ -96,6 +96,16 @@ function agentTypeToNodeType(type: string): NodeType {
   return NODE_TYPE.OFFERING
 }
 
+/** Adapts a graph node into the normalized shape rendered by {@link MapCard}. */
+function nodeToMapCardItem(node: MiniNode): MapCardItem {
+  return {
+    id: node.id,
+    type: node.type,
+    name: node.label,
+    url: node.href,
+  }
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 interface AgentGraphProps {
@@ -107,12 +117,13 @@ interface AgentGraphProps {
 export function AgentGraph({ agentId, agentName, agentType }: AgentGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const router = useRouter()
 
   const [nodes, setNodes] = useState<MiniNode[]>([])
   const [links, setLinks] = useState<MiniLink[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  // Selected node: drives the MapCard overlay (click node → card → object page).
+  const [selectedNode, setSelectedNode] = useState<MiniNode | null>(null)
 
   // ─── Fetch connections ──────────────────────────────────────────────────
 
@@ -445,11 +456,11 @@ export function AgentGraph({ agentId, agentName, agentType }: AgentGraphProps) {
           })
       )
 
-    // Click — navigate to agent page
+    // Click — open the entity card (the card then links to the agent page)
     nodeGroup.on("click", (event, d) => {
       event.stopPropagation()
-      if (d.isCenter) return // don't navigate away from current page
-      router.push(d.href)
+      if (d.isCenter) return // keep focus on the current page's center node
+      setSelectedNode(d)
     })
 
     // Draw shapes
@@ -598,7 +609,7 @@ export function AgentGraph({ agentId, agentName, agentType }: AgentGraphProps) {
     return () => {
       simulation.stop()
     }
-  }, [nodes, links, router])
+  }, [nodes, links])
 
   // ─── Resize ─────────────────────────────────────────────────────────────
 
@@ -651,9 +662,14 @@ export function AgentGraph({ agentId, agentName, agentType }: AgentGraphProps) {
         className="w-full text-foreground"
         style={{ height: GRAPH_HEIGHT }}
       />
+      {selectedNode && (
+        <div className="absolute bottom-7 left-1/2 z-20 -translate-x-1/2">
+          <MapCard item={nodeToMapCardItem(selectedNode)} onClose={() => setSelectedNode(null)} />
+        </div>
+      )}
       <div className="absolute bottom-2 left-0 right-0 text-center">
         <p className="text-[10px] text-muted-foreground/60">
-          Click a node to visit. Drag to rearrange. Scroll to zoom.
+          Click a node to open its card. Drag to rearrange. Scroll to zoom.
         </p>
       </div>
     </div>

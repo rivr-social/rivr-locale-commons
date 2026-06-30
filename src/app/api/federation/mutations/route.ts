@@ -5,7 +5,6 @@ import { resolveHomeInstance } from "@/lib/federation/resolution";
 import {
   authorizeFederationRequest,
   bindAuthorizedFederationActor,
-  resolveLocalActorId,
 } from "@/lib/federation-auth";
 import { runWithFederationExecutionContext } from "@/lib/federation/execution-context";
 import {
@@ -144,7 +143,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const actorBinding = bindAuthorizedFederationActor(authorization, actorId);
+    const actorBinding = await bindAuthorizedFederationActor(authorization, actorId);
     if (!actorBinding.authorized || !actorBinding.actorId) {
       return NextResponse.json(
         { success: false, error: actorBinding.reason ?? "Actor authorization failed" },
@@ -245,16 +244,12 @@ export async function POST(request: Request) {
       );
     }
 
-    // Normalize the peer-supplied actor id to this instance's local agent id.
-    // Under peer-secret (server-to-server) trust the bound actorId is the
-    // FORWARDING instance's local id for the human; downstream authority checks
-    // (e.g. hasGroupWriteAccess for post-as-group) run against THIS instance's
-    // graph and must see the receiver-local id. The mapping comes from
-    // federation_entity_map (read-only — never minted here). Unmapped actors
-    // pass through unchanged.
-    const effectiveActorId = authorization.peerTrusted
-      ? await resolveLocalActorId(authorization.peerNodeId, actorBinding.actorId)
-      : actorBinding.actorId;
+    // The bound actor id is ALREADY this instance's local agent id:
+    // bindAuthorizedFederationActor resolves the peer-supplied actor through
+    // federation_entity_map (strict, read-only) and returns the receiver-local
+    // id, so downstream authority checks (e.g. hasGroupWriteAccess for
+    // post-as-group) run against THIS instance's own graph.
+    const effectiveActorId = actorBinding.actorId;
 
     const result = (await dispatchLegacyMutation(
       type,
@@ -394,7 +389,8 @@ async function dispatchLegacyMutation(
       case "createEventResource":
         return createEventResource(record as Parameters<typeof createEventResource>[0]);
       // Cross-instance resource UPDATE/DELETE by a peer admin. The actor was
-      // already normalized to this instance's local id (resolveLocalActorId)
+      // already bound to this instance's local id by
+      // bindAuthorizedFederationActor (strict entity-map lookup, never minted)
       // and the whole switch runs in runWithFederationExecutionContext, so
       // updateResource/deleteResource's own canModifyResource → hasGroupWriteAccess
       // gate authorizes the resolved actor exactly like a local session.
