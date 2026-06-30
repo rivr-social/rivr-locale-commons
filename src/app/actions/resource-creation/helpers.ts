@@ -17,6 +17,8 @@ import { embedResource, scheduleEmbedding } from "@/lib/ai";
 import { hasEntitlement } from "@/lib/billing";
 import { syncMurmurationsProfilesForActor } from "@/lib/murmurations";
 import { ensureLocalNode, queueEntityExportEvents } from "@/lib/federation";
+import { getExecutionContext } from "@/lib/federation/execution-context";
+import { getAgent } from "@/lib/queries/agents";
 import { isGroupAdmin } from "@/app/actions/group-admin";
 
 import type { ActionResult, CreateResourceInput, MemberCapabilityVerb } from "./types";
@@ -269,8 +271,35 @@ export async function createResourceWithLedger(input: CreateResourceInput): Prom
     // the node owner. queueEntityExportEvents applies the visibility filter
     // (public/locale/members only), so private resources still stay local.
     const federationNode = await ensureLocalNode();
-    const ownerId = input.ownerId ?? userId;
-    if (ownerId !== userId) {
+    // Autobot PROVENANCE model: content an autobot authors is OWNED BY ITS
+    // CONTROLLER (the human), with the autobot recorded as provenance — the same
+    // shape as the postedAsGroup/postedByAgentId stamp. This is what lets the
+    // controller see, moderate, and delete autobot-created content (ownership is
+    // the delete/moderation gate; see canModifyResource). PERSONAS keep distinct
+    // authorship (their own agent owns) and HUMANS are unaffected. Applies only
+    // when the autobot would otherwise own the content itself — never when an
+    // explicit group `input.ownerId` is in play (that stays group-owned via the
+    // authorization gate below) — and falls back to current behavior when no
+    // controllerId is available so we never null-own.
+    const executionContext = getExecutionContext();
+    const requestedOwnerId = input.ownerId ?? userId;
+    const isAutobotControllerContent =
+      executionContext?.actorType === "autobot" &&
+      Boolean(executionContext.controllerId) &&
+      requestedOwnerId === userId;
+
+    let ownerId = requestedOwnerId;
+    let autobotProvenance: { createdByAgentId: string; createdByName: string | null } | null = null;
+    if (isAutobotControllerContent) {
+      const autobotAgent = await getAgent(userId);
+      ownerId = executionContext!.controllerId!;
+      autobotProvenance = {
+        createdByAgentId: userId,
+        createdByName: autobotAgent?.name ?? null,
+      };
+    }
+
+    if (!isAutobotControllerContent && ownerId !== userId) {
       const [owner] = await db
         .select({ id: agents.id })
         .from(agents)
@@ -308,7 +337,10 @@ export async function createResourceWithLedger(input: CreateResourceInput): Prom
           ownerId,
           visibility: input.visibility ?? "public",
           tags: input.tags ?? [],
-          metadata: input.metadata ?? {},
+          metadata: {
+            ...(input.metadata ?? {}),
+            ...(autobotProvenance ?? {}),
+          },
           ...(input.location ? {
             location: {
               type: "Point" as const,
@@ -328,6 +360,7 @@ export async function createResourceWithLedger(input: CreateResourceInput): Prom
           resourceType: input.type,
           source: "create-page",
           ...(input.metadata ?? {}),
+          ...(autobotProvenance ?? {}),
         },
       } as NewLedgerEntry);
 
