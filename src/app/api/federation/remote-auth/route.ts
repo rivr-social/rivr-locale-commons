@@ -63,6 +63,7 @@ import {
   verifySsoAssertion,
   type SsoAssertionVerifyResult,
 } from "@/lib/federation/sso-assertion";
+import { burnSsoNonce } from "@/lib/federation/sso-nonce-store";
 import {
   REMOTE_VIEWER_COOKIE_NAME,
   REMOTE_VIEWER_DEFAULT_LIFETIME_SEC,
@@ -185,6 +186,38 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const claims = result.claims;
+
+  // F3 — single-use (AUTH-SEC-002): atomically burn the assertion nonce before
+  // minting a session. A verified-but-replayed assertion (captured POST body)
+  // must not grant a second cookie. Collapses to the same 401 as every verify
+  // failure so the route stays a non-oracle.
+  let burn: Awaited<ReturnType<typeof burnSsoNonce>>;
+  try {
+    burn = await burnSsoNonce({
+      issuer: claims.globalIssuerBaseUrl,
+      nonce: claims.nonce,
+      expUnixSec: claims.exp,
+      actorId: claims.actorId,
+    });
+  } catch (error) {
+    console.error("[federation/remote-auth] nonce burn threw:", error);
+    return NextResponse.json(
+      { error: "Internal error" },
+      { status: STATUS_INTERNAL_ERROR },
+    );
+  }
+  if (!burn.ok) {
+    console.warn(
+      `[federation/remote-auth] rejected replayed assertion nonce: reason=${burn.reason}`,
+    );
+    return NextResponse.json(
+      { error: "Invalid assertion" },
+      {
+        status: STATUS_UNAUTHORIZED,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
+  }
 
   const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
   if (!secret) {

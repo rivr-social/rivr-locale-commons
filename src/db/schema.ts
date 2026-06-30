@@ -1768,3 +1768,38 @@ export const federatedVisitLog = pgTable(
 
 export type FederatedVisitLogRecord = typeof federatedVisitLog.$inferSelect;
 export type NewFederatedVisitLogRecord = typeof federatedVisitLog.$inferInsert;
+
+/**
+ * Single-use SSO assertion nonces (F3 — SSO replay protection, AUTH-SEC-002).
+ *
+ * A signed SSO assertion (src/lib/federation/sso-assertion.ts) already carries
+ * a `nonce` and an `exp`; verification proves authenticity and in-window
+ * validity but not single-use. The SSO ACCEPT paths
+ * (/api/federation/remote-auth, /api/federation/sso/land) atomically burn the
+ * nonce here via `INSERT ... ON CONFLICT (issuer, nonce) DO NOTHING` before
+ * minting the rivr_remote_viewer cookie — the first presentation wins, every
+ * re-presentation collides on the unique index and is rejected. Keyed by
+ * (issuer, nonce) so two distinct issuers can never shadow each other's
+ * nonces; `expires_at` mirrors the assertion `exp` (<=5 min) so a sweep can
+ * prune the table, but the unique constraint, not the TTL, is what enforces
+ * single use within the validity window. Home-authority / per-instance; never
+ * federated.
+ */
+export const ssoNonces = pgTable(
+  'sso_nonces',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    issuer: text('issuer').notNull(),
+    nonce: text('nonce').notNull(),
+    actorId: uuid('actor_id'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('sso_nonces_issuer_nonce_idx').on(table.issuer, table.nonce),
+    index('sso_nonces_expires_at_idx').on(table.expiresAt),
+  ]
+);
+
+export type SsoNonceRecord = typeof ssoNonces.$inferSelect;
+export type NewSsoNonceRecord = typeof ssoNonces.$inferInsert;
