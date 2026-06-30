@@ -8,14 +8,11 @@
 
 import { useState, useRef, useCallback } from "react"
 import Image from "next/image"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Camera, MapPin, Pencil, Settings, Users } from "lucide-react"
+import { Camera, MapPin, Users } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { updateGroupImageAction } from "@/app/actions/settings"
-import { GroupEditModal } from "@/components/group-edit-modal"
 
 interface GroupProfileHeaderProps {
   groupId: string
@@ -28,10 +25,6 @@ interface GroupProfileHeaderProps {
   tags: string[]
   isAdmin: boolean
   children?: React.ReactNode
-  /** Group type string for conditional edit modal fields. */
-  groupType?: string
-  /** Current commission in basis points (e.g. 1000 = 10%). */
-  commissionBps?: number
 }
 
 export function GroupProfileHeader({
@@ -45,8 +38,6 @@ export function GroupProfileHeader({
   tags,
   isAdmin,
   children,
-  groupType,
-  commissionBps,
 }: GroupProfileHeaderProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -54,7 +45,6 @@ export function GroupProfileHeader({
   const coverInputRef = useRef<HTMLInputElement>(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
-  const [editModalOpen, setEditModalOpen] = useState(false)
 
   const handleImageUpload = useCallback(async (field: "avatar" | "coverImage", file: File) => {
     const setLoading = field === "avatar" ? setUploadingAvatar : setUploadingCover
@@ -196,35 +186,8 @@ export function GroupProfileHeader({
               ))}
             </div>
           )}
-
-          {isAdmin && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2"
-              onClick={() => setEditModalOpen(true)}
-            >
-              <Pencil className="h-4 w-4 mr-2" />
-              Edit Profile
-            </Button>
-          )}
         </div>
       </div>
-
-      {isAdmin && (
-        <GroupEditModal
-          open={editModalOpen}
-          onOpenChange={setEditModalOpen}
-          groupId={groupId}
-          initialName={name}
-          initialDescription={description}
-          initialLocation={location}
-          initialTags={tags}
-          initialCoverImage={coverImage}
-          groupType={groupType}
-          initialCommissionBps={commissionBps}
-        />
-      )}
     </div>
   )
 }

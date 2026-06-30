@@ -16,13 +16,16 @@
  * - Admin/access checks are enforced by server actions; UI displays an access-denied state on failure.
  * - No `metadata` export is defined in this file.
  */
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Plus, Trash2, UserPlus, CreditCard, MessageSquare, Globe, Mail, Crown } from "lucide-react";
+import { ArrowLeft, Camera, Loader2, Pencil, Plus, Trash2, UserPlus, CreditCard, MessageSquare, Globe, Mail, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { LocationAutocompleteInput, type LocationSuggestion } from "@/components/location-autocomplete-input";
+import { TagEditor } from "@/components/tag-editor";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ResponsiveTabsList } from "@/components/responsive-tabs-list";
@@ -50,6 +53,52 @@ import { GroupType as LegacyGroupType } from "@/lib/types";
 import type { Group as LegacyGroup } from "@/lib/types";
 
 const RESUME_ORG_UPGRADE_PARAM = "resumeOrgUpgrade";
+
+/** Maximum commission percentage allowed for mart sales. */
+const MAX_COMMISSION_PERCENT = 50;
+
+/**
+ * Sanitizes a raw price-field keystroke: keeps digits and a single decimal
+ * point so the value can be typed freely (e.g. `"12."`, `"12.5"`) without being
+ * reformatted on every keystroke. Parsing to cents happens on blur/save.
+ *
+ * @param raw - The raw input string from the price field.
+ * @returns A string containing only digits and at most one `.`.
+ */
+function sanitizePriceInput(raw: string): string {
+  const cleaned = raw.replace(/[^0-9.]/g, "");
+  const firstDot = cleaned.indexOf(".");
+  if (firstDot === -1) return cleaned;
+  return cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, "");
+}
+
+/** Clamps a percentage to the supported `0..MAX_COMMISSION_PERCENT` range. */
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(MAX_COMMISSION_PERCENT, value));
+}
+
+/** Settings tab values, in render order. Profile is the default landing tab. */
+const SETTINGS_TAB_VALUES = [
+  "profile",
+  "memberships",
+  "join",
+  "requests",
+  "chat",
+  "announcements",
+  "map-marker",
+  "admin-overview",
+] as const;
+
+/**
+ * Resolves the active settings tab from the `?tab=` query param. Unknown/absent
+ * values fall back to the Profile tab.
+ */
+function resolveDefaultTab(tabParam: string | null): string {
+  return tabParam && (SETTINGS_TAB_VALUES as readonly string[]).includes(tabParam)
+    ? tabParam
+    : "profile";
+}
 
 type EditableMembershipPlan = GroupMembershipPlan;
 
@@ -130,6 +179,35 @@ export default function GroupSettingsPage(props: { params: Promise<{ id: string 
   const [showMembershipGate, setShowMembershipGate] = useState(false);
   const [upgradePending, setUpgradePending] = useState(false);
 
+  // ── Profile tab (folds the former Edit-Profile modal) ──
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const [description, setDescription] = useState("");
+  const [profileLocationText, setProfileLocationText] = useState("");
+  const [profileLocationData, setProfileLocationData] = useState<LocationSuggestion | null>(null);
+  const [profileTags, setProfileTags] = useState<string[]>([]);
+  const [coverImage, setCoverImage] = useState("");
+  const [coverPreview, setCoverPreview] = useState("");
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const [commissionPercent, setCommissionPercent] = useState(0);
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // ── Membership price drafts (price-input fix) ──
+  // Raw, per-field strings keyed `${planId}:monthly` / `${planId}:yearly` so a
+  // partially typed price (e.g. "12.") is preserved across keystrokes instead of
+  // being reformatted by parse(format(...)) on every change. Parsed to cents on
+  // blur and on save.
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
+
+  // ── Map-marker location ──
+  const [markerLocationText, setMarkerLocationText] = useState("");
+  const [markerLocationData, setMarkerLocationData] = useState<LocationSuggestion | null>(null);
+  const [markerLat, setMarkerLat] = useState("");
+  const [markerLng, setMarkerLng] = useState("");
+  const [savingLocation, setSavingLocation] = useState(false);
+
+  const isOrganization = groupType === "organization";
+
   useEffect(() => {
     let cancelled = false;
 
@@ -154,7 +232,7 @@ export default function GroupSettingsPage(props: { params: Promise<{ id: string 
       setGroupType(result.group.groupType === "org" ? "organization" : result.group.groupType);
       setJoinSettings(result.group.joinSettings);
       // Ensure the form always has at least one editable plan entry.
-      setMembershipPlans(
+      const loadedPlans: EditableMembershipPlan[] =
         result.group.membershipPlans.length > 0
           ? result.group.membershipPlans
           : [
@@ -168,7 +246,34 @@ export default function GroupSettingsPage(props: { params: Promise<{ id: string 
                 perks: [],
                 isDefault: true,
               },
-            ]
+            ];
+      setMembershipPlans(loadedPlans);
+      // Seed per-field price drafts from the loaded plans (price-input fix).
+      const drafts: Record<string, string> = {};
+      for (const plan of loadedPlans) {
+        drafts[`${plan.id}:monthly`] = formatDollarsFromCents(plan.amountMonthlyCents);
+        drafts[`${plan.id}:yearly`] = formatDollarsFromCents(plan.amountYearlyCents);
+      }
+      setPriceDrafts(drafts);
+
+      // Hydrate the Profile tab.
+      setDescription(result.group.description);
+      setProfileLocationText(result.group.location);
+      setProfileLocationData(null);
+      setProfileTags(result.group.tags);
+      setCoverImage(result.group.coverImage);
+      setCoverPreview(result.group.coverImage);
+      setCoverFile(null);
+      setCommissionPercent(Math.round(result.group.commissionBps / 100));
+
+      // Hydrate the Map Marker tab location.
+      setMarkerLocationText(result.group.location);
+      setMarkerLocationData(null);
+      setMarkerLat(
+        result.group.locationData?.lat !== undefined ? String(result.group.locationData.lat) : "",
+      );
+      setMarkerLng(
+        result.group.locationData?.lng !== undefined ? String(result.group.locationData.lng) : "",
       );
 
       setModelUrl(result.group.modelUrl ?? null);
@@ -224,6 +329,12 @@ export default function GroupSettingsPage(props: { params: Promise<{ id: string 
         name: `Membership ${nextIndex}`,
         isDefault: prev.length === 0,
       };
+      // Seed empty price drafts for the new plan so its inputs are controlled.
+      setPriceDrafts((drafts) => ({
+        ...drafts,
+        [`${newPlan.id}:monthly`]: "",
+        [`${newPlan.id}:yearly`]: "",
+      }));
       return [...prev, newPlan];
     });
   };
@@ -268,8 +379,20 @@ export default function GroupSettingsPage(props: { params: Promise<{ id: string 
    * Persists membership plans through the group-admin server action.
    */
   const onSaveMembershipPlans = async () => {
+    // Flush any unblurred price drafts into the plans before persisting.
+    const plansToSave = membershipPlans.map((plan) => ({
+      ...plan,
+      amountMonthlyCents: parseDollarsToCents(
+        priceDrafts[`${plan.id}:monthly`] ?? formatDollarsFromCents(plan.amountMonthlyCents),
+      ),
+      amountYearlyCents: parseDollarsToCents(
+        priceDrafts[`${plan.id}:yearly`] ?? formatDollarsFromCents(plan.amountYearlyCents),
+      ),
+    }));
+    setMembershipPlans(plansToSave);
+
     setSavingMemberships(true);
-    const result = await updateGroupMembershipPlans(groupId, membershipPlans);
+    const result = await updateGroupMembershipPlans(groupId, plansToSave);
     setSavingMemberships(false);
 
     if (!result.success) {
@@ -278,6 +401,155 @@ export default function GroupSettingsPage(props: { params: Promise<{ id: string 
     }
 
     toast({ title: "Membership plans saved" });
+  };
+
+  /**
+   * Stages a selected cover image for upload; preview is shown immediately and
+   * the file is uploaded on save (mirrors the former Edit-Profile modal).
+   */
+  const handleCoverSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setCoverFile(file);
+    setCoverPreview(URL.createObjectURL(file));
+    event.target.value = "";
+  }, []);
+
+  const handleProfileLocationSelect = useCallback((suggestion: LocationSuggestion) => {
+    setProfileLocationText(suggestion.label);
+    setProfileLocationData(suggestion);
+  }, []);
+
+  const handleMarkerLocationSelect = useCallback((suggestion: LocationSuggestion) => {
+    setMarkerLocationText(suggestion.label);
+    setMarkerLocationData(suggestion);
+    if (typeof suggestion.lat === "number") setMarkerLat(String(suggestion.lat));
+    if (typeof suggestion.lon === "number") setMarkerLng(String(suggestion.lon));
+  }, []);
+
+  /**
+   * Persists the group's profile fields via `updateGroupResource`, reusing the
+   * same metadata-patch shape the former Edit-Profile modal produced.
+   */
+  const onSaveProfile = async () => {
+    if (!groupName.trim()) {
+      toast({ title: "Name required", description: "Group name cannot be empty.", variant: "destructive" });
+      return;
+    }
+
+    setSavingProfile(true);
+    try {
+      let finalCoverUrl = coverImage;
+
+      if (coverFile) {
+        setUploadingCover(true);
+        const formData = new FormData();
+        formData.append("file", coverFile);
+        formData.append("bucket", "avatars");
+        const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
+        const uploadJson = await uploadRes.json();
+        setUploadingCover(false);
+        if (!uploadRes.ok || !uploadJson.results?.[0]?.url) {
+          toast({ title: "Cover upload failed", description: uploadJson.error || "Could not upload image.", variant: "destructive" });
+          setSavingProfile(false);
+          return;
+        }
+        finalCoverUrl = uploadJson.results[0].url;
+      }
+
+      const metadataPatch: Record<string, unknown> = {
+        coverImage: finalCoverUrl,
+        chapterTags: profileTags,
+        tags: profileTags,
+      };
+
+      if (isOrganization) {
+        metadataPatch.commissionBps = clampPercent(commissionPercent) * 100;
+      }
+
+      if (profileLocationData) {
+        metadataPatch.location = {
+          name: profileLocationData.label,
+          city: profileLocationData.locality ?? profileLocationData.name ?? profileLocationData.label,
+          lat: profileLocationData.lat,
+          lng: profileLocationData.lon,
+        };
+      } else if (profileLocationText.trim()) {
+        metadataPatch.location = profileLocationText.trim();
+      } else {
+        metadataPatch.location = null;
+      }
+
+      const result = await updateGroupResource({
+        groupId,
+        name: groupName.trim(),
+        description: description.trim(),
+        metadataPatch,
+      });
+
+      if (result.success) {
+        setCoverImage(finalCoverUrl);
+        setCoverFile(null);
+        toast({ title: "Group profile updated" });
+        router.refresh();
+      } else {
+        toast({ title: "Update failed", description: result.message, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Update failed", description: "Something went wrong.", variant: "destructive" });
+    } finally {
+      setSavingProfile(false);
+      setUploadingCover(false);
+    }
+  };
+
+  /**
+   * Persists the group's map-marker location (place + optional manual lat/lng)
+   * as a structured `metadata.location` object via `updateGroupResource`.
+   */
+  const onSaveLocation = async () => {
+    setSavingLocation(true);
+    try {
+      const lat = markerLat.trim() ? Number(markerLat.trim()) : undefined;
+      const lng = markerLng.trim() ? Number(markerLng.trim()) : undefined;
+
+      if ((markerLat.trim() && !Number.isFinite(lat)) || (markerLng.trim() && !Number.isFinite(lng))) {
+        toast({ title: "Invalid coordinates", description: "Latitude and longitude must be numbers.", variant: "destructive" });
+        setSavingLocation(false);
+        return;
+      }
+
+      const name = markerLocationData?.label ?? markerLocationText.trim();
+      if (!name && lat === undefined && lng === undefined) {
+        const cleared = await updateGroupResource({ groupId, metadataPatch: { location: null } });
+        if (!cleared.success) {
+          toast({ title: "Could not save location", description: cleared.message, variant: "destructive" });
+        } else {
+          toast({ title: "Location cleared" });
+        }
+        setSavingLocation(false);
+        return;
+      }
+
+      const location: Record<string, unknown> = {
+        name,
+        city: markerLocationData?.locality ?? markerLocationData?.name ?? name,
+        lat: lat ?? markerLocationData?.lat,
+        lng: lng ?? markerLocationData?.lon,
+      };
+
+      const result = await updateGroupResource({ groupId, metadataPatch: { location } });
+      if (!result.success) {
+        toast({ title: "Could not save location", description: result.message, variant: "destructive" });
+      } else {
+        toast({ title: "Map marker location saved" });
+        router.refresh();
+      }
+    } catch {
+      toast({ title: "Could not save location", description: "Something went wrong.", variant: "destructive" });
+    } finally {
+      setSavingLocation(false);
+    }
   };
 
   /**
@@ -437,8 +709,12 @@ export default function GroupSettingsPage(props: { params: Promise<{ id: string 
         </Button>
       </div>
 
-      <Tabs defaultValue="memberships" className="space-y-6">
+      <Tabs defaultValue={resolveDefaultTab(searchParams.get("tab"))} className="space-y-6">
         <ResponsiveTabsList>
+          <TabsTrigger value="profile" className="inline-flex items-center gap-2">
+            <Pencil className="h-4 w-4" />
+            Profile
+          </TabsTrigger>
           <TabsTrigger value="memberships" className="inline-flex items-center gap-2">
             <CreditCard className="h-4 w-4" />
             Memberships
@@ -468,6 +744,126 @@ export default function GroupSettingsPage(props: { params: Promise<{ id: string 
             Admin Overview
           </TabsTrigger>
         </ResponsiveTabsList>
+
+        {/* Profile tab folds the former Edit-Profile modal into settings. */}
+        <TabsContent value="profile" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile</CardTitle>
+              <CardDescription>
+                Edit your group&apos;s public profile: cover image, name, description,
+                location, and tags.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Cover Image */}
+              <div className="space-y-2">
+                <Label>Cover Image</Label>
+                <button
+                  type="button"
+                  className="relative w-full h-32 rounded-lg border bg-muted overflow-hidden group cursor-pointer"
+                  onClick={() => coverInputRef.current?.click()}
+                >
+                  {coverPreview ? (
+                    <Image src={coverPreview} alt="Cover preview" fill className="object-cover" unoptimized />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                      Click to upload cover image
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                    <Camera className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  {uploadingCover && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <span className="text-white text-sm">Uploading...</span>
+                    </div>
+                  )}
+                </button>
+                <input
+                  ref={coverInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleCoverSelect}
+                />
+              </div>
+
+              {/* Name */}
+              <div className="space-y-2">
+                <Label htmlFor="profile-name">Name</Label>
+                <Input
+                  id="profile-name"
+                  value={groupName}
+                  onChange={(event) => setGroupName(event.target.value)}
+                  placeholder="Group name"
+                  maxLength={120}
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-2">
+                <Label htmlFor="profile-description">Description</Label>
+                <Textarea
+                  id="profile-description"
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="Describe your group..."
+                  rows={4}
+                  maxLength={2000}
+                />
+              </div>
+
+              {/* Location */}
+              <div className="space-y-2">
+                <Label>Location</Label>
+                <LocationAutocompleteInput
+                  value={profileLocationText}
+                  onValueChange={setProfileLocationText}
+                  onSelectSuggestion={handleProfileLocationSelect}
+                  placeholder="Search for a location..."
+                />
+              </div>
+
+              {/* Tags */}
+              <div className="space-y-2">
+                <Label>Tags</Label>
+                <TagEditor tags={profileTags} setTags={setProfileTags} placeholder="Add tags and press Enter..." />
+              </div>
+
+              {/* Mart commission — organizations only */}
+              {isOrganization && (
+                <div className="space-y-2">
+                  <Label htmlFor="commission-percent">Mart Commission (%)</Label>
+                  <Input
+                    id="commission-percent"
+                    type="number"
+                    min={0}
+                    max={MAX_COMMISSION_PERCENT}
+                    step={1}
+                    value={commissionPercent}
+                    onChange={(event) => setCommissionPercent(clampPercent(parseInt(event.target.value, 10)))}
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Percentage taken from member sales in your mart (0&ndash;{MAX_COMMISSION_PERCENT}%)
+                  </p>
+                </div>
+              )}
+
+              <Button type="button" onClick={onSaveProfile} disabled={savingProfile}>
+                {savingProfile ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Profile"
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="memberships" className="space-y-4">
           {groupType !== "organization" ? (
@@ -549,10 +945,18 @@ export default function GroupSettingsPage(props: { params: Promise<{ id: string 
                       <Label>Monthly Price (USD)</Label>
                       <Input
                         inputMode="decimal"
-                        value={formatDollarsFromCents(plan.amountMonthlyCents)}
+                        value={priceDrafts[`${plan.id}:monthly`] ?? formatDollarsFromCents(plan.amountMonthlyCents)}
                         onChange={(event) =>
-                          onPlanFieldChange(plan.id, "amountMonthlyCents", parseDollarsToCents(event.target.value))
+                          setPriceDrafts((drafts) => ({
+                            ...drafts,
+                            [`${plan.id}:monthly`]: sanitizePriceInput(event.target.value),
+                          }))
                         }
+                        onBlur={() => {
+                          const cents = parseDollarsToCents(priceDrafts[`${plan.id}:monthly`] ?? "");
+                          onPlanFieldChange(plan.id, "amountMonthlyCents", cents);
+                          setPriceDrafts((drafts) => ({ ...drafts, [`${plan.id}:monthly`]: formatDollarsFromCents(cents) }));
+                        }}
                         placeholder="22.00"
                       />
                     </div>
@@ -560,10 +964,18 @@ export default function GroupSettingsPage(props: { params: Promise<{ id: string 
                       <Label>Yearly Price (USD)</Label>
                       <Input
                         inputMode="decimal"
-                        value={formatDollarsFromCents(plan.amountYearlyCents)}
+                        value={priceDrafts[`${plan.id}:yearly`] ?? formatDollarsFromCents(plan.amountYearlyCents)}
                         onChange={(event) =>
-                          onPlanFieldChange(plan.id, "amountYearlyCents", parseDollarsToCents(event.target.value))
+                          setPriceDrafts((drafts) => ({
+                            ...drafts,
+                            [`${plan.id}:yearly`]: sanitizePriceInput(event.target.value),
+                          }))
                         }
+                        onBlur={() => {
+                          const cents = parseDollarsToCents(priceDrafts[`${plan.id}:yearly`] ?? "");
+                          onPlanFieldChange(plan.id, "amountYearlyCents", cents);
+                          setPriceDrafts((drafts) => ({ ...drafts, [`${plan.id}:yearly`]: formatDollarsFromCents(cents) }));
+                        }}
                         placeholder="220.00"
                       />
                     </div>
@@ -812,8 +1224,54 @@ export default function GroupSettingsPage(props: { params: Promise<{ id: string 
           />
         </TabsContent>
 
-        {/* Map Marker tab allows uploading a GLB 3D model for the group's map marker. */}
+        {/* Map Marker tab: location placement + optional GLB 3D marker model. */}
         <TabsContent value="map-marker" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Map Location</CardTitle>
+              <CardDescription>
+                Set where this group appears on the map. Search for a place, or enter
+                latitude/longitude directly for precise placement.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Place</Label>
+                <LocationAutocompleteInput
+                  value={markerLocationText}
+                  onValueChange={setMarkerLocationText}
+                  onSelectSuggestion={handleMarkerLocationSelect}
+                  placeholder="Search for a place..."
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="marker-lat">Latitude (optional)</Label>
+                  <Input
+                    id="marker-lat"
+                    inputMode="decimal"
+                    value={markerLat}
+                    onChange={(event) => setMarkerLat(event.target.value)}
+                    placeholder="40.0150"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="marker-lng">Longitude (optional)</Label>
+                  <Input
+                    id="marker-lng"
+                    inputMode="decimal"
+                    value={markerLng}
+                    onChange={(event) => setMarkerLng(event.target.value)}
+                    placeholder="-105.2705"
+                  />
+                </div>
+              </div>
+              <Button type="button" onClick={onSaveLocation} disabled={savingLocation}>
+                {savingLocation ? "Saving..." : "Save Map Location"}
+              </Button>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>3D Map Marker</CardTitle>
