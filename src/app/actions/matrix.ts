@@ -29,6 +29,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { adminJoinRoom, getRoomMembers } from "@/lib/matrix-admin";
 import { provisionMatrixUser } from "@/lib/matrix-admin";
 import { resolveGroupAdminAuthorization } from "@/lib/group-admin-authorization";
+import { encryptSecret, decryptSecret } from "@/lib/crypto/secret-box";
 
 async function ensureAgentMatrixIdentity(agentId: string): Promise<string | null> {
   const agent = await db.query.agents.findFirst({
@@ -56,7 +57,10 @@ async function ensureAgentMatrixIdentity(agentId: string): Promise<string | null
       .update(agents)
       .set({
         matrixUserId: result.matrixUserId,
-        matrixAccessToken: result.accessToken,
+        // Encrypt the access token at rest (EVT-SEC-006); the user id stays
+        // plaintext. Legacy plaintext rows are migrated to ciphertext on this
+        // next provisioning write.
+        matrixAccessToken: encryptSecret(result.accessToken),
       })
       .where(eq(agents.id, agent.id));
 
@@ -110,9 +114,14 @@ export async function getMatrixCredentials(): Promise<{
 
   if (!matrixUserId || !matrixAccessToken) return null;
 
+  // The token is encrypted at rest (EVT-SEC-006); decrypt before handing it to
+  // the browser matrix-js-sdk client. Legacy plaintext rows pass through.
+  const decryptedAccessToken = decryptSecret(matrixAccessToken);
+  if (!decryptedAccessToken) return null;
+
   return {
     userId: matrixUserId,
-    accessToken: matrixAccessToken,
+    accessToken: decryptedAccessToken,
     homeserverUrl: process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || "",
   };
 }
