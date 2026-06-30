@@ -187,3 +187,29 @@ export async function createDirectMessageRoom(params: {
 
   return { roomId: result.room_id };
 }
+
+/**
+ * Returns the canonical Synapse membership of a room (the list of full Matrix
+ * user IDs the homeserver considers members) via the Synapse Admin API.
+ *
+ * This is the authoritative, server-side source of room membership — used by
+ * verified-principal authorization (EVT-SEC-001) to confirm that a caller is
+ * actually a member of a direct room before driving a privileged membership
+ * mutation. It must NOT be substituted with any client-writable mirror.
+ *
+ * @param roomId - The Matrix room ID (must start with `!`).
+ * @returns Array of full Matrix user IDs that are members of the room.
+ * @throws Error if the roomId is malformed.
+ */
+export async function getRoomMembers(roomId: string): Promise<string[]> {
+  if (!roomId.startsWith("!")) {
+    throw new Error(`Invalid Matrix roomId: ${roomId}`);
+  }
+  const result = await synapseAdminRequest(
+    `/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}/members`,
+    { method: "GET" },
+  );
+  const members = (result?.members as unknown) ?? [];
+  if (!Array.isArray(members)) return [];
+  return members.filter((m): m is string => typeof m === "string");
+}

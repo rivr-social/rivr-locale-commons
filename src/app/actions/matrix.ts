@@ -1,27 +1,34 @@
 "use server";
 
 /**
- * Matrix server actions for authenticated Matrix credential retrieval.
+ * Matrix server actions for authenticated Matrix chat operations.
  *
- * Purpose:
- * - Provide authenticated access to Matrix credentials for the current user.
- * - Look up Matrix user IDs for DM targeting.
- *
- * Key exports:
- * - `getMatrixCredentials` — returns the current user's Matrix credentials.
- * - `getDmRoomForUser` — returns the target user's Matrix user ID for DM creation.
+ * SECURITY (EVT-SEC-001): every export in a `"use server"` module is a
+ * client-reachable server action, so each one must be safe to call with
+ * fully attacker-controlled arguments. The principal is ALWAYS derived from
+ * `auth()` — never from a client-supplied id. Concretely:
+ *  - Read actions are session-scoped (own credentials) or return only
+ *    non-secret identifiers.
+ *  - The membership-mutating action `ensureUserJoinedRoom` drives the
+ *    privileged Synapse admin force-join, so it is gated by
+ *    `canActorMutateRoomMembership`, which derives authority from CANONICAL
+ *    sources only: a ledger admin/moderator edge for group rooms, or canonical
+ *    Synapse room membership for direct rooms. It never force-joins an
+ *    arbitrary user into an arbitrary room.
  *
  * Dependencies:
  * - `@/auth` for session authentication.
  * - `@/db` for database queries.
  * - `@/db/schema` for the agents table.
+ * - `@/lib/group-admin-authorization` for canonical group-admin authority.
  */
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { agents, resources, ledger, groupMatrixRooms } from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
-import { adminJoinRoom } from "@/lib/matrix-admin";
+import { adminJoinRoom, getRoomMembers } from "@/lib/matrix-admin";
 import { provisionMatrixUser } from "@/lib/matrix-admin";
+import { resolveGroupAdminAuthorization } from "@/lib/group-admin-authorization";
 
 async function ensureAgentMatrixIdentity(agentId: string): Promise<string | null> {
   const agent = await db.query.agents.findFirst({
@@ -153,8 +160,74 @@ export async function getMatrixUserIdsForAgents(
 }
 
 /**
- * Force-joins the target user into a DM room so they see it immediately
+ * Verified-principal authorization for mutating a Matrix room's membership
+ * (force-joining a user).
+ *
+ * Authority is derived from CANONICAL sources ONLY (EVT-SEC-001):
+ *  - Group rooms: checked FIRST. The actor must hold an active admin/moderator
+ *    membership edge in the ledger for the owning group
+ *    (`resolveGroupAdminAuthorization`).
+ *  - Direct rooms: the actor must be an actual Synapse member of the room,
+ *    verified against the admin `getRoomMembers` view and matched by the
+ *    actor's own provisioned Matrix user id. No client-supplied participant
+ *    list is ever consulted for the authorization decision.
+ */
+async function canActorMutateRoomMembership(
+  actorId: string,
+  roomId: string,
+): Promise<{ authorized: true } | { authorized: false; reason: string }> {
+  // Canonical group room? Derive admin authority from the ledger. Checked
+  // before any direct-room handling so group authority is always evaluated
+  // against canonical group-admin edges.
+  const groupRoom = await db.query.groupMatrixRooms.findFirst({
+    where: eq(groupMatrixRooms.matrixRoomId, roomId),
+    columns: { groupAgentId: true },
+  });
+  if (groupRoom) {
+    const isAdmin = await resolveGroupAdminAuthorization(actorId, groupRoom.groupAgentId);
+    return isAdmin
+      ? { authorized: true }
+      : { authorized: false, reason: "Group admin access required to mutate this room's membership." };
+  }
+
+  // Otherwise treat as a direct room and authorize against canonical Synapse
+  // membership — never a client-supplied or mirrored participant list.
+  const actor = await db.query.agents.findFirst({
+    where: eq(agents.id, actorId),
+    columns: { matrixUserId: true },
+  });
+  const actorMatrixUserId = actor?.matrixUserId;
+  if (typeof actorMatrixUserId !== "string" || actorMatrixUserId.length === 0) {
+    return { authorized: false, reason: "Your account has no Matrix identity yet." };
+  }
+
+  let members: string[];
+  try {
+    members = await getRoomMembers(roomId);
+  } catch (err) {
+    console.error(
+      `[matrix] canActorMutateRoomMembership: getRoomMembers failed for ${roomId}:`,
+      err,
+    );
+    return { authorized: false, reason: "Could not verify room membership." };
+  }
+
+  return members.includes(actorMatrixUserId)
+    ? { authorized: true }
+    : { authorized: false, reason: "Only existing room participants can mutate this room's membership." };
+}
+
+/**
+ * Force-joins the target user into a DM/group room so they see it immediately
  * without needing to manually accept an invite.
+ *
+ * This is a client-reachable server action that drives the privileged Synapse
+ * admin "force-join" endpoint, so it is authorized with the verified-principal
+ * model (EVT-SEC-001): the caller (derived from `auth()`, never the client
+ * payload) must be entitled to mutate the room's membership — i.e. be a
+ * canonical Synapse member of a direct room, or a ledger-derived admin of the
+ * room's owning group. An unauthorized caller is a silent no-op; we never let
+ * an arbitrary client force any user into any room.
  *
  * @param targetMatrixUserId - Full Matrix user ID to join
  * @param roomId - The Matrix room ID to join them into
@@ -173,6 +246,18 @@ export async function ensureUserJoinedRoom(
   }
   if (!roomId.startsWith("!")) {
     console.error("[matrix] ensureUserJoinedRoom: invalid roomId, must start with !");
+    return;
+  }
+
+  // Authorize the CALLER against canonical room authority before driving the
+  // admin force-join. Without this, any authenticated client could force any
+  // user into any room (EVT-SEC-001).
+  const authorization = await canActorMutateRoomMembership(session.user.id, roomId);
+  if (!authorization.authorized) {
+    console.error(
+      "[matrix] ensureUserJoinedRoom: caller not authorized to join users into this room:",
+      authorization.reason,
+    );
     return;
   }
 
