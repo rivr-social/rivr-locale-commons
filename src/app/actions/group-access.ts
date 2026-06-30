@@ -19,6 +19,7 @@ import { headers } from "next/headers";
 import { rateLimit } from "@/lib/rate-limit";
 import { JoinType, type GroupJoinSettings, type JoinRequest } from "@/lib/types";
 import { updateFacade, emitDomainEvent, EVENT_TYPES } from "@/lib/federation";
+import { resolveGroupAdminAuthorization } from "@/lib/group-admin-authorization";
 
 // =============================================================================
 // Constants
@@ -262,7 +263,7 @@ export async function revokeGroupMembership(
     },
     async () => {
   // Only the member themselves or an admin of the group can revoke
-  const isAdmin = await isGroupAdmin(actorId, groupId);
+  const isAdmin = await resolveGroupAdminAuthorization(actorId, groupId);
   if (actorId !== memberId && !isAdmin) {
     return { success: false, error: "Not authorized to revoke this membership." };
   }
@@ -707,7 +708,7 @@ export async function fetchGroupJoinRequests(
     return { success: false, error: "Invalid group identifier." };
   }
 
-  const isAdmin = await isGroupAdmin(session.user.id, groupId);
+  const isAdmin = await resolveGroupAdminAuthorization(session.user.id, groupId);
   if (!isAdmin) {
     return { success: false, error: "Only group admins can view join requests." };
   }
@@ -787,7 +788,7 @@ export async function reviewGroupJoinRequest(
       payload: { requestId, decision, adminNotes },
     },
     async () => {
-  const isAdmin = await isGroupAdmin(actorId, groupId);
+  const isAdmin = await resolveGroupAdminAuthorization(actorId, groupId);
   if (!isAdmin) {
     return { success: false, error: "Only group admins can review join requests." };
   }
@@ -924,24 +925,4 @@ function isInviteSatisfied(inviteLink?: string, inviteToken?: string): boolean {
   } catch {
     return inviteLink === normalizedInput;
   }
-}
-
-async function isGroupAdmin(userId: string, groupId: string): Promise<boolean> {
-  const now = new Date();
-  const [adminEntry] = await db
-    .select({ id: ledger.id })
-    .from(ledger)
-    .where(
-      and(
-        eq(ledger.subjectId, userId),
-        eq(ledger.objectId, groupId),
-        eq(ledger.isActive, true),
-        or(eq(ledger.verb, "belong"), eq(ledger.verb, "join")),
-        or(eq(ledger.role, "admin"), eq(ledger.role, "moderator")),
-        or(isNull(ledger.expiresAt), sql`${ledger.expiresAt} > ${now}`)
-      )
-    )
-    .limit(1);
-
-  return !!adminEntry;
 }
