@@ -161,6 +161,15 @@ export default function CreatePage() {
     },
   ])
 
+  // Lazy-section reveal flags for the event creator. Optional sections
+  // (location/meeting link, venue booking, tickets) stay collapsed behind an
+  // "Add …" affordance and only mount when the user opens them. The location
+  // section pre-opens when handed a value via URL params (e.g. a Live Class
+  // location) so the handed-off value stays visible.
+  const [showEventLocation, setShowEventLocation] = useState(() => Boolean(isLiveClass && urlLocation))
+  const [showEventVenue, setShowEventVenue] = useState(false)
+  const [showEventTickets, setShowEventTickets] = useState(false)
+
   // Event image upload state
   const [eventImageUrl, setEventImageUrl] = useState<string | null>(null)
   const [isEventImageUploading, setIsEventImageUploading] = useState(false)
@@ -783,10 +792,13 @@ export default function CreatePage() {
    * @param skipMembershipGate When `true`, bypasses the subscription pre-check (used after starting trial).
    */
   const handleCreateEvent = async (skipMembershipGate = false) => {
-    if (!eventTitle || !eventDescription || !eventDate || !eventTime || !eventLocation) {
+    // Events require only a title, description, and a start date/time. Every
+    // other field (location/meeting link, venue booking, tickets) is optional
+    // and lives behind a lazy "Add …" affordance in the event form.
+    if (!eventTitle || !eventDescription || !eventDate || !eventTime) {
       toast({
         title: "Missing information",
-        description: "Please fill in all required fields.",
+        description: "Please add a title, description, and start date/time.",
         variant: "destructive",
       })
       return
@@ -1577,34 +1589,41 @@ export default function CreatePage() {
                 Locale is set from the Visibility Scope picker below. Add one or more locales there to scope and tag this event.
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="event-location">
-                  {eventType === "online" ? "Meeting Link/Platform" : "Location"}
-                </Label>
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-3 h-4 w-4 text-gray-500" />
-                  {eventType === "online" ? (
-                    <Input
-                      id="event-location"
-                      placeholder="Zoom, Meet, or platform link"
-                      className="pl-10"
-                      value={eventLocation}
-                      onChange={(e) => setEventLocation(e.target.value)}
-                    />
-                  ) : (
-                    <LocationAutocompleteInput
-                      id="event-location"
-                      value={eventLocation}
-                      onValueChange={setEventLocation}
-                      placeholder="Search address or place"
-                      inputClassName="pl-10"
-                    />
-                  )}
+              {showEventLocation ? (
+                <div className="space-y-2">
+                  <Label htmlFor="event-location">
+                    {eventType === "online" ? "Meeting Link/Platform" : "Location"}
+                  </Label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-gray-500" />
+                    {eventType === "online" ? (
+                      <Input
+                        id="event-location"
+                        placeholder="Zoom, Meet, or platform link"
+                        className="pl-10"
+                        value={eventLocation}
+                        onChange={(e) => setEventLocation(e.target.value)}
+                      />
+                    ) : (
+                      <LocationAutocompleteInput
+                        id="event-location"
+                        value={eventLocation}
+                        onValueChange={setEventLocation}
+                        placeholder="Search address or place"
+                        inputClassName="pl-10"
+                      />
+                    )}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowEventLocation(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  {eventType === "online" ? "Add meeting link" : "Add location"}
+                </Button>
+              )}
 
-              {/* Venue Booking Section - Only show for in-person events */}
-              {eventType === "in-person" && (
+              {/* Venue Booking Section - Only show for in-person events, revealed on demand */}
+              {eventType === "in-person" && (showEventVenue ? (
                 <div className="space-y-4 border-t pt-4">
                 <div className="flex items-center gap-2">
                   <Building2 className="h-4 w-4" />
@@ -1710,7 +1729,14 @@ export default function CreatePage() {
                   </div>
                 )}
               </div>
-              )}
+              ) : (
+                <div className="border-t pt-4">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setShowEventVenue(true)}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add venue booking
+                  </Button>
+                </div>
+              ))}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-3">
@@ -1798,6 +1824,7 @@ export default function CreatePage() {
 
               <Separator />
 
+              {showEventTickets ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1868,6 +1895,12 @@ export default function CreatePage() {
                   ))}
                 </div>
               </div>
+              ) : (
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowEventTickets(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add tickets
+                </Button>
+              )}
 
               <Separator />
               <EftPicker value={eftValues} onChange={setEftValues} capitalValue={capitalValues} onCapitalChange={setCapitalValues} auditValue={auditValues} onAuditChange={setAuditValues} />
