@@ -89,6 +89,18 @@ function buildCspHeader(nonce: string): string {
   const appUrl = process.env.NEXTAUTH_URL?.trim();
   const appWss = appUrl?.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://");
 
+  // Resolve the GLOBAL identity-authority origin. Client-side discovery hooks
+  // (e.g. use-global-locales) fetch `${GLOBAL_BASE_URL}/api/federation/registry`
+  // from the browser, so the global host must be in connect-src or the CSP
+  // refuses the request. Mirrors lib/global-base-url.ts resolution. Defaults to
+  // production global so a sovereign with no override still reaches app.rivr.social.
+  const globalBase = (
+    process.env.NEXT_PUBLIC_GLOBAL_IDENTITY_AUTHORITY_URL ||
+    process.env.GLOBAL_IDENTITY_AUTHORITY_URL ||
+    "https://app.rivr.social"
+  ).trim().replace(/\/+$/, "");
+  const globalWss = globalBase.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://");
+
   const connectSources = [
     "'self'",
     "ws://localhost:*",
@@ -99,6 +111,7 @@ function buildCspHeader(nonce: string): string {
     "https://127.0.0.1:*",
     ...(appUrl ? [appUrl] : []),
     ...(appWss ? [appWss] : []),
+    ...(globalBase ? [globalBase, globalWss] : []),
     "https://api.stripe.com",
     "https://api.mapbox.com",
     "https://*.mapbox.com",
