@@ -389,7 +389,8 @@ async function dispatchLegacyMutation(
       case "createEventResource":
         return createEventResource(record as Parameters<typeof createEventResource>[0]);
       // Cross-instance resource UPDATE/DELETE by a peer admin. The actor was
-      // already normalized to this instance's local id (resolveLocalActorId)
+      // already bound to this instance's local id by
+      // bindAuthorizedFederationActor (strict entity-map lookup, never minted)
       // and the whole switch runs in runWithFederationExecutionContext, so
       // updateResource/deleteResource's own canModifyResource → hasGroupWriteAccess
       // gate authorizes the resolved actor exactly like a local session.
