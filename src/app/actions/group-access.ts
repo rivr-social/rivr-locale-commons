@@ -19,6 +19,7 @@ import { headers } from "next/headers";
 import { rateLimit } from "@/lib/rate-limit";
 import { JoinType, type GroupJoinSettings, type JoinRequest } from "@/lib/types";
 import { updateFacade, emitDomainEvent, EVENT_TYPES } from "@/lib/federation";
+import { resolveGroupAdminAuthorization } from "@/lib/group-admin-authorization";
 
 // =============================================================================
 // Constants
@@ -262,18 +263,22 @@ export async function revokeGroupMembership(
     },
     async () => {
   // Only the member themselves or an admin of the group can revoke
-  const isAdmin = await isGroupAdmin(actorId, groupId);
+  const isAdmin = await resolveGroupAdminAuthorization(actorId, groupId);
   if (actorId !== memberId && !isAdmin) {
     return { success: false, error: "Not authorized to revoke this membership." };
   }
 
-  // Expire every active join record to ensure no stale grant remains valid.
+  // Expire every active membership grant so no stale access remains valid.
+  // Both `join` (current) and legacy `belong` rows count as membership by every
+  // predicate (findActiveMembership / isGroupMember / member counts), so revoke
+  // MUST expire both verbs — expiring only `join` would leave a `belong`-backed
+  // member fully active despite a "revoked" UI state (GRP-SEC-005).
   await db.execute(sql`
     UPDATE ledger
     SET is_active = false, expires_at = NOW()
     WHERE subject_id = ${memberId}
       AND object_id = ${groupId}
-      AND verb = 'join'
+      AND verb IN ('join', 'belong')
       AND is_active = true
   `);
 
@@ -703,7 +708,7 @@ export async function fetchGroupJoinRequests(
     return { success: false, error: "Invalid group identifier." };
   }
 
-  const isAdmin = await isGroupAdmin(session.user.id, groupId);
+  const isAdmin = await resolveGroupAdminAuthorization(session.user.id, groupId);
   if (!isAdmin) {
     return { success: false, error: "Only group admins can view join requests." };
   }
@@ -783,7 +788,7 @@ export async function reviewGroupJoinRequest(
       payload: { requestId, decision, adminNotes },
     },
     async () => {
-  const isAdmin = await isGroupAdmin(actorId, groupId);
+  const isAdmin = await resolveGroupAdminAuthorization(actorId, groupId);
   if (!isAdmin) {
     return { success: false, error: "Only group admins can review join requests." };
   }
@@ -920,24 +925,4 @@ function isInviteSatisfied(inviteLink?: string, inviteToken?: string): boolean {
   } catch {
     return inviteLink === normalizedInput;
   }
-}
-
-async function isGroupAdmin(userId: string, groupId: string): Promise<boolean> {
-  const now = new Date();
-  const [adminEntry] = await db
-    .select({ id: ledger.id })
-    .from(ledger)
-    .where(
-      and(
-        eq(ledger.subjectId, userId),
-        eq(ledger.objectId, groupId),
-        eq(ledger.isActive, true),
-        or(eq(ledger.verb, "belong"), eq(ledger.verb, "join")),
-        or(eq(ledger.role, "admin"), eq(ledger.role, "moderator")),
-        or(isNull(ledger.expiresAt), sql`${ledger.expiresAt} > ${now}`)
-      )
-    )
-    .limit(1);
-
-  return !!adminEntry;
 }

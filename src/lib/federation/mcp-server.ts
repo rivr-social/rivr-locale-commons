@@ -8,6 +8,7 @@ import {
   type McpToolCallContext,
 } from "@/lib/federation/mcp-tools";
 import { logMcpProvenance } from "@/lib/federation/mcp-provenance";
+import { secureEqual } from "@/lib/federation-auth";
 
 const MCP_PROTOCOL_VERSION = "2024-11-05";
 
@@ -86,7 +87,9 @@ async function authorizeMcpRequest(
 
   const configuredToken = process.env.AIAGENT_MCP_TOKEN?.trim() || "";
   const providedToken = getBearerToken(request) ?? getQueryToken(request);
-  if (!configuredToken || !providedToken || providedToken !== configuredToken) {
+  // Constant-time compare: the high-value static AIAGENT_MCP_TOKEN must not be
+  // probed via a byte-wise timing side-channel (AUTH-SEC-006).
+  if (!configuredToken || !providedToken || !secureEqual(providedToken, configuredToken)) {
     return null;
   }
 
