@@ -987,10 +987,10 @@ export default function CreatePage() {
    * Validates the current job draft and attaches it to the project draft state.
    */
   const addJobToProject = () => {
-    if (!currentJob.title.trim() || !currentJob.description.trim() || currentJob.tasks.length === 0) {
+    if (!currentJob.title.trim() || !currentJob.description.trim()) {
       toast({
         title: "Missing information",
-        description: "Please fill in job title, description, and add at least one task.",
+        description: "Please fill in a job title and description.",
         variant: "destructive",
       })
       return
@@ -2576,7 +2576,7 @@ export default function CreatePage() {
                         <Button
                           type="button"
                           onClick={addJobToProject}
-                          disabled={!currentJob.title.trim() || !currentJob.description.trim() || currentJob.tasks.length === 0}
+                          disabled={!currentJob.title.trim() || !currentJob.description.trim()}
                         >
                           Add Job to Project
                         </Button>
