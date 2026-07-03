@@ -7,6 +7,13 @@ const config: Config = {
     "./src/**/*.{js,ts,jsx,tsx,mdx}",
     "../../packages/ui/src/**/*.{js,ts,jsx,tsx}",
   ],
+  safelist: [
+    "liquid-glass",
+    "liquid-glass-effect",
+    "liquid-glass-effect-strong",
+    "liquid-glass-tint",
+    "liquid-glass-shine",
+  ],
   theme: {
     extend: {
       borderRadius: {
