@@ -10,7 +10,7 @@ import { notFound } from "next/navigation"
 import type { Metadata } from "next"
 import { MessageSquare, Settings } from "lucide-react"
 import { auth } from "@/auth"
-import { fetchAgentFeed, fetchGroupDetail } from "@/app/actions/graph"
+import { fetchAgentFeed, fetchGroupDetail, fetchGroupLineage } from "@/app/actions/graph"
 import { agentToGroup, agentToUser } from "@/lib/graph-adapters"
 import { readGroupMembershipPlans } from "@/lib/group-memberships"
 import { buildGroupPageMetadata } from "@/lib/object-metadata"
@@ -52,7 +52,17 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
   const domainGroups = detail.subgroups.map(agentToGroup)
   const groupMeta = (detail.group.metadata ?? {}) as Record<string, unknown>
   const rawGroupType = String(groupMeta.groupType ?? "").toLowerCase()
-  const canonicalGroupType = rawGroupType === "org" ? "organization" : (rawGroupType || "basic")
+  const agentGroupType = String(detail.group.type ?? "").toLowerCase()
+  const fallbackGroupType = ["organization", "org", "ring", "family", "guild", "community"].includes(agentGroupType) ? "organization" : "basic"
+  // Parent lineage (root-first): subgroup breadcrumb + org-tab inheritance
+  // (a subgroup anywhere under an organization gets the full org tab set).
+  const groupLineage = detail.group.parentId ? await fetchGroupLineage(group.id) : []
+  const hasOrgAncestor = groupLineage.some(
+    (a) => ["organization", "org"].includes(String(a.groupType ?? "").toLowerCase()) ||
+           ["organization", "org", "ring", "family", "guild", "community"].includes(a.type.toLowerCase()),
+  )
+  const ownGroupType = rawGroupType === "org" ? "organization" : (rawGroupType || fallbackGroupType)
+  const canonicalGroupType = hasOrgAncestor && ownGroupType === "basic" ? "organization" : ownGroupType
   const ownerId = typeof groupMeta.creatorId === "string" ? groupMeta.creatorId : undefined
   const currentUserId = session?.user?.id ?? null
   const isGroupAdmin = !!(currentUserId && (
@@ -226,6 +236,7 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
       }
       location={groupLocationText}
       memberCount={members.length || group.memberCount || 0}
+      lineage={groupLineage.map(({ id: lid, name }) => ({ id: lid, name }))}
       tags={group.chapterTags ?? []}
       isAdmin={isGroupAdmin}
     >
