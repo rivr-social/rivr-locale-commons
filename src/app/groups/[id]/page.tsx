@@ -6,6 +6,7 @@
  * modals, and wired-in interactive components).
  */
 import Link from "next/link"
+import { parseFacetedTagsFromMetadata } from "@/lib/parachute-doc"
 import { notFound } from "next/navigation"
 import type { Metadata } from "next"
 import { MessageSquare, Settings } from "lucide-react"
@@ -316,6 +317,10 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
             createdBy: r.ownerId,
             groupId: id,
             tags: Array.isArray(meta.tags) ? (meta.tags as string[]) : [],
+            facetedTags: parseFacetedTagsFromMetadata(
+              r.metadata,
+              Array.isArray(meta.tags) ? (meta.tags as string[]) : r.tags,
+            ),
             category: typeof meta.category === "string" ? meta.category : undefined,
             showOnAbout: meta.showOnAbout === true,
           }
