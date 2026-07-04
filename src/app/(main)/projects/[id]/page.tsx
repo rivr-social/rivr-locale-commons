@@ -183,6 +183,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   }
 
   const { agent, project, ownerId, owner, children, activity, linkedEvents, jobResources } = data
+  const projectMeta = (agent.metadata ?? {}) as Record<string, unknown>
   const members = children.filter((child) => child.type === "person")
   const linkedJobCount = jobResources.filter((resource) => resource.type === "job" || ((resource.metadata ?? {}) as Record<string, unknown>).resourceKind === "job").length
   const linkedTaskCount = jobResources.filter((resource) => resource.type === "task" || ((resource.metadata ?? {}) as Record<string, unknown>).resourceKind === "task").length
@@ -271,6 +272,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             projectName={project.name}
             projectDescription={project.description}
             ownerId={ownerId}
+            timeframeStart={typeof (projectMeta.timeframe as { start?: string } | undefined)?.start === "string" ? (projectMeta.timeframe as { start?: string }).start : null}
+            timeframeEnd={typeof (projectMeta.timeframe as { end?: string } | undefined)?.end === "string" ? (projectMeta.timeframe as { end?: string }).end : null}
           />
         </CardContent>
       </Card>
