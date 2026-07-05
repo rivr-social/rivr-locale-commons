@@ -1,0 +1,58 @@
+{
+  "$schema": "../../foundation/schemas/module.schema.json",
+  "id": "rivr-locale",
+  "version": "1.0.0",
+  "name": "RIVR Locale Commons App",
+  "description": "RIVR sovereign locale/neighborhood commons instance. One env-parameterized module serves every locale-codebase instance (e.g. Boulder Commons); instances differ ONLY by .env. Federates to a global for identity aggregation.",
+  "author": { "name": "RIVR" },
+  "license": "MIT",
+  "repository": "https://github.com/rivr-social/rivr-locale-commons",
+  "tags": ["rivr", "locale", "sovereign", "commons", "neighborhood"],
+  "foundation": { "minVersion": "1.0.0" },
+  "requires": {
+    "connections": [
+      { "type": "database", "providers": ["postgresql"], "required": true, "alias": "rivr-db" },
+      { "type": "cache", "providers": ["redis"], "required": true, "alias": "rivr-cache" },
+      { "type": "storage", "providers": ["minio", "s3"], "required": false, "alias": "rivr-objstore" }
+    ],
+    "modules": []
+  },
+  "provides": {
+    "connections": [],
+    "events": [
+      "rivr-locale.instance.started",
+      "rivr-locale.instance.stopped",
+      "rivr-locale.federation-sync.completed",
+      "rivr-locale.federation-sync.failed"
+    ]
+  },
+  "security": {
+    "enforcementMode": "warn",
+    "identity": { "required": true, "credentialType": "any" },
+    "encryption": { "dataAtRest": "none", "transitEncryption": "tls", "keyPurposes": ["signing"] }
+  },
+  "lifecycle": {
+    "install": { "script": "./hooks/install.sh", "timeout": 120 },
+    "start": { "script": "./hooks/start.sh", "timeout": 120 },
+    "stop": { "script": "./hooks/stop.sh", "timeout": 60 },
+    "uninstall": "./hooks/uninstall.sh",
+    "health": { "script": "./hooks/health.sh", "timeout": 30 }
+  },
+  "config": {
+    "version": "1.0",
+    "required": ["domain", "baseUrl", "instanceSlug"],
+    "properties": {
+      "domain": { "type": "string", "env": "DOMAIN", "description": "Public host for this instance (Traefik Host rule + NEXT_PUBLIC_DOMAIN), e.g. boulder-commons.rivr.social" },
+      "baseUrl": { "type": "string", "env": "BASE_URL", "description": "Absolute public base URL (https://<domain>); drives NEXTAUTH_URL + NEXT_PUBLIC_* URLs" },
+      "instanceSlug": { "type": "string", "env": "INSTANCE_SLUG", "pattern": "^[a-z0-9][a-z0-9_-]*$", "description": "Per-instance slug; differentiates container_name + Traefik router" },
+      "instanceType": { "type": "string", "default": "locale", "env": "INSTANCE_TYPE", "description": "RIVR instance type" },
+      "instanceName": { "type": "string", "env": "INSTANCE_NAME", "description": "Human-readable instance name" },
+      "nodeSlug": { "type": "string", "env": "NODE_SLUG", "description": "Federation node slug (defaults to instanceSlug)" },
+      "registryUrl": { "type": "string", "env": "REGISTRY_URL", "description": "Federation registry endpoint of the global this node federates to" },
+      "globalIdentityAuthorityUrl": { "type": "string", "env": "GLOBAL_IDENTITY_AUTHORITY_URL", "description": "Global instance URL that aggregates identity for this node" },
+      "primaryAgentId": { "type": "string", "env": "PRIMARY_AGENT_ID", "description": "UUID of this node's primary/owner agent" },
+      "authSecret": { "type": "string", "env": "AUTH_SECRET", "secret": true, "description": "NextAuth/Auth.js signing secret (>=32 chars)" },
+      "imageRef": { "type": "string", "env": "RIVR_IMAGE", "description": "Container image reference; overrides the built image. Pin to a digest in production." }
+    }
+  }
+}

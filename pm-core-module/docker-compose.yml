@@ -1,0 +1,103 @@
+# RIVR Locale Commons App — pm-core module (distributable)
+#
+# Per-app-type + env-parameterized: ONE module runs ANY locale instance. Every
+# per-instance value (DOMAIN, BASE_URL, INSTANCE_SLUG, database, secrets) comes
+# from ./.env (env_file) — nothing instance-specific is hardcoded here.
+#
+# Drop this dir into <pm-core>/modules/rivr-locale/, populate ./.env (see .env.example),
+# place file-based secrets (see secrets-required.txt), then launch via the
+# pm-core module lifecycle.
+#
+# Image: set RIVR_IMAGE to a digest-pinned reference for production (no drift).
+# If RIVR_IMAGE is unset the module builds ./src (clone/checkout of https://github.com/rivr-social/rivr-locale-commons) at
+# first `up --build`.
+
+services:
+  rivr-locale:
+    extends:
+      file: ../../foundation/docker-compose.base.yml
+      service: _service-standard
+    image: ${RIVR_IMAGE:-rivr-locale:local}
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    container_name: ${RIVR_CONTAINER:-pmdl_rivr_${INSTANCE_SLUG}}
+    command: ["/bootstrap/start.sh"]
+    env_file:
+      - ./.env
+    profiles:
+      - rivr-locale
+      - full
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      AUTH_TRUST_HOST: "true"
+      # Public URLs — all derived from the two operator-supplied values.
+      NEXTAUTH_URL: ${BASE_URL:?set BASE_URL in .env}
+      NEXT_PUBLIC_BASE_URL: ${BASE_URL}
+      NEXT_PUBLIC_APP_URL: ${BASE_URL}
+      NEXT_PUBLIC_DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      # Instance identity
+      INSTANCE_TYPE: ${INSTANCE_TYPE:-locale}
+      INSTANCE_SLUG: ${INSTANCE_SLUG:?set INSTANCE_SLUG in .env}
+      INSTANCE_NAME: ${INSTANCE_NAME:-RIVR Locale Commons}
+      NODE_SLUG: ${NODE_SLUG:-${INSTANCE_SLUG}}
+      INSTANCE_ID: ${INSTANCE_ID:-}
+      PRIMARY_AGENT_ID: ${PRIMARY_AGENT_ID:-}
+      # Federation
+      GLOBAL_IDENTITY_AUTHORITY_URL: ${GLOBAL_IDENTITY_AUTHORITY_URL:-}
+      NEXT_PUBLIC_GLOBAL_URL: ${GLOBAL_IDENTITY_AUTHORITY_URL:-}
+      REGISTRY_URL: ${REGISTRY_URL:-}
+      NEXT_PUBLIC_REGISTRY_URL: ${REGISTRY_URL:-}
+      # Secrets read from files by bootstrap/start.sh (_FILE convention)
+      DATABASE_URL_FILE: /run/secrets/db_url
+      REDIS_URL_FILE: /run/secrets/redis_url
+    secrets:
+      - db_url
+      - redis_url
+    networks:
+      - proxy-external
+      - db-internal
+      - app-internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    ports:
+      - "127.0.0.1:${HOST_PORT:?set HOST_PORT in .env}:3000"
+    volumes:
+      - ./bootstrap:/bootstrap:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rivr-${INSTANCE_SLUG}.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.rivr-${INSTANCE_SLUG}.entrypoints=websecure"
+      - "traefik.http.routers.rivr-${INSTANCE_SLUG}.tls=true"
+      - "traefik.http.routers.rivr-${INSTANCE_SLUG}.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.rivr-${INSTANCE_SLUG}.service=rivr-${INSTANCE_SLUG}"
+      - "traefik.http.services.rivr-${INSTANCE_SLUG}.loadbalancer.server.port=3000"
+      - "com.centurylinklabs.watchtower.enable=false"
+
+secrets:
+  db_url:
+    file: ${SECRETS_DIR:-/opt/pm-core/secrets}/${INSTANCE_SLUG}/db_url
+  redis_url:
+    file: ${SECRETS_DIR:-/opt/pm-core/secrets}/${INSTANCE_SLUG}/redis_url
+
+networks:
+  proxy-external:
+    external: true
+    name: pmdl_proxy-external
+  db-internal:
+    external: true
+    name: pmdl_db-internal
+  app-internal:
+    external: true
+    name: pmdl_app-internal
