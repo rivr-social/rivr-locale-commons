@@ -102,7 +102,10 @@ export async function fetchHomeFeed(limit = 20) {
   );
 
   function isVisibleResource(r: Resource): boolean {
-    if (r.isPublic !== false) return true;
+    // visibility is the canonical privacy field; is_public is deprecated. This
+    // is what lets globally-visible (public) projects/jobs/events federated from
+    // groups actually surface on this locale.
+    if (r.visibility === "public") return true;
     if (!actorId) return false;
     // Creators always see their own resources.
     if (r.ownerId === actorId) return true;
