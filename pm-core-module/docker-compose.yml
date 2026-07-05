@@ -28,8 +28,19 @@ services:
     profiles:
       - rivr-locale
       - full
+    # Container hardening (proven on this image by the live host module
+    # /opt/docker-lab/modules/rivr-global and the pm-core Stage 2 pilot):
+    #   - no new privileges, drop ALL Linux capabilities;
+    #   - read-only root filesystem, with tmpfs for the only paths the Next.js
+    #     standalone server writes at runtime (/tmp and .next/cache).
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
     depends_on:
       postgres:
         condition: service_healthy
