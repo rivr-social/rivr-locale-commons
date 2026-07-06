@@ -9,7 +9,7 @@
  */
 
 import { db } from "@/db";
-import { nodes, agents } from "@/db/schema";
+import { nodes, agents, federationEntityMap } from "@/db/schema";
 import { eq, isNotNull } from "drizzle-orm";
 import { getInstanceConfig, getGlobalInstanceId } from "./instance-config";
 
@@ -248,4 +248,27 @@ export async function listInstances(): Promise<HomeInstanceInfo[]> {
     isLocal: node.id === config.instanceId,
     migrationStatus: node.migrationStatus || "active",
   }));
+}
+
+/**
+ * Map a peer-supplied external agent id to this instance's local agent id.
+ * Strict and read-only: never mints a mapping. Returns the mapped
+ * `local_entity_id` when a `federation_entity_map` row keys the input as an
+ * `external_entity_id` for an `agent`; otherwise returns the input unchanged.
+ * (Port of the group/global helper — used to normalize forwarded mutation
+ * TARGETS whose ids come from the sender's agent namespace.)
+ */
+export async function resolveLocalActorId(actorId: string): Promise<string> {
+  const [mapping] = await db
+    .select({ localEntityId: federationEntityMap.localEntityId })
+    .from(federationEntityMap)
+    .where(
+      and(
+        eq(federationEntityMap.externalEntityId, actorId),
+        eq(federationEntityMap.entityType, "agent"),
+      ),
+    )
+    .limit(1);
+
+  return mapping?.localEntityId || actorId;
 }
