@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getInstanceConfig } from "@/lib/federation/instance-config";
-import { resolveHomeInstance } from "@/lib/federation/resolution";
+import { resolveHomeInstance, resolveLocalActorId } from "@/lib/federation/resolution";
 import {
   authorizeFederationRequest,
   bindAuthorizedFederationActor,
@@ -203,7 +203,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const homeInstance = await resolveHomeInstance(targetAgentId);
+    // Normalize the TARGET through the entity map before the locality gate -
+    // identity-normalized agents carry DIFFERENT ids per instance; the raw
+    // forwarded id can be unknown here and would 421 as "not local" even
+    // though the target IS this instance's own agent. Read-only; unmapped ids
+    // pass through unchanged.
+    const localTargetAgentId = await resolveLocalActorId(targetAgentId);
+
+    const homeInstance = await resolveHomeInstance(localTargetAgentId);
     if (!homeInstance.isLocal) {
       return NextResponse.json(
         {
