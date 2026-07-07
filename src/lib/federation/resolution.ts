@@ -10,7 +10,7 @@
 
 import { db } from "@/db";
 import { nodes, agents, federationEntityMap } from "@/db/schema";
-import { eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { getInstanceConfig, getGlobalInstanceId } from "./instance-config";
 
 /** Maximum depth when walking the parent chain to prevent infinite loops. */
