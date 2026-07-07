@@ -70,7 +70,7 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   transpilePackages: ["@rivr/db", "@rivr/federation", "@rivr/lib", "@rivr/ui"],
-  outputFileTracingRoot: path.join(__dirname, "../../"),
+  outputFileTracingRoot: path.join(__dirname, "./"),  // single-repo build: trace within /app for standalone (was monorepo "../../")
   images: {
     dangerouslyAllowSVG: true,
     remotePatterns: [

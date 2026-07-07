@@ -35,18 +35,12 @@ RUN pnpm build
 
 FROM node:20-slim AS runner
 
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable && corepack prepare pnpm@8.15.9 --activate
-
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
-ENV HOME=/tmp
-ENV COREPACK_HOME=/tmp/corepack
+ENV HOSTNAME="0.0.0.0"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
@@ -55,10 +49,25 @@ RUN apt-get update && \
 RUN groupadd --system --gid 1001 nodejs && \
     useradd --system --uid 1001 --gid nodejs nextjs
 
-COPY --from=builder --chown=nextjs:nodejs /app ./
+# Standalone output only (Next traces the runtime node_modules it needs) — NOT
+# the whole /app. Keeps the image ~1GB+ smaller; parity with global + group.
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+RUN mkdir -p .next/cache && chown -R nextjs:nodejs .next/cache
+
+# Runtime migration bits (standalone does not trace the migrate path)
+COPY --from=builder --chown=nextjs:nodejs /app/src/db/migrations ./src/db/migrations
+COPY --from=builder --chown=nextjs:nodejs /app/docker/migrate-runner.cjs ./migrate-runner.cjs
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/drizzle-orm ./node_modules/drizzle-orm
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/postgres ./node_modules/postgres
+
+# Entrypoint: reads secrets, runs migrate-runner.cjs, execs node server.js
+COPY --from=builder --chown=nextjs:nodejs /app/docker/start.sh ./start.sh
+RUN chmod +x ./start.sh
 
 USER nextjs
 
 EXPOSE 3000
 
-CMD sh -lc 'pnpm db:migrate && pnpm start'
+ENTRYPOINT ["./start.sh"]
