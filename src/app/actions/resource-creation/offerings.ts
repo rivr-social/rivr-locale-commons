@@ -13,7 +13,7 @@ import {
 } from "@/db/schema";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { hasCapability } from "@/lib/entitlements";
+import { hasCapability } from "@/lib/entitlements-server";
 import { getSellerCardCapability, SELLER_CARD_NO_ACCOUNT_REASON } from "@/lib/wallet";
 import { getAgent } from "@/lib/queries/agents";
 import { syncMurmurationsProfilesForActor } from "@/lib/murmurations";

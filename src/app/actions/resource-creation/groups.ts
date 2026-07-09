@@ -19,7 +19,8 @@ import { createGroupMatrixRoom } from "@/lib/matrix-groups";
 import { syncMurmurationsProfilesForActor } from "@/lib/murmurations";
 import { type GroupJoinSettings } from "@/lib/types";
 import { updateFacade, emitDomainEvent, EVENT_TYPES } from "@/lib/federation";
-import { hasCapability, isOrganizationGroupType } from "@/lib/entitlements";
+import { hasCapability } from "@/lib/entitlements-server";
+import { isOrganizationGroupType } from "@/lib/entitlements";
 
 import {
   resolveAuthenticatedUserId,

@@ -12,7 +12,7 @@ import {
 } from "@/db/schema";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { and, eq, sql } from "drizzle-orm";
-import { hasCapability } from "@/lib/entitlements";
+import { hasCapability } from "@/lib/entitlements-server";
 import { embedResource, scheduleEmbedding } from "@/lib/ai";
 import { syncMurmurationsProfilesForActor } from "@/lib/murmurations";
 

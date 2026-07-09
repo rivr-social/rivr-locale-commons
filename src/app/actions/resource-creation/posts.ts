@@ -13,7 +13,7 @@ import {
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getActiveSubscription } from "@/lib/billing";
-import { hasCapability } from "@/lib/entitlements";
+import { hasCapability } from "@/lib/entitlements-server";
 import { embedResource, scheduleEmbedding } from "@/lib/ai";
 import { getAgent } from "@/lib/queries/agents";
 import { syncMurmurationsProfilesForActor } from "@/lib/murmurations";

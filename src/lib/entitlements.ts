@@ -18,8 +18,13 @@
  * Seller must NOT pass the ticket gate, and a Host must NOT pass the offering
  * gate. Community / family / ring groups are free for any signed-in user (no
  * capability required).
+ *
+ * PURE + client-safe: this module must NOT import server-only code (db, Stripe,
+ * billing). The subscription-resolving `hasCapability` lives in the server-only
+ * `@/lib/entitlements-server` so client components can import the pure helpers
+ * (`tierHasCapability`, `isOrganizationGroupType`) without pulling `db` into the
+ * client bundle.
  */
-import { getActiveSubscription } from "@/lib/billing";
 import type { MembershipTier } from "@/db/schema";
 
 export type Capability =
@@ -69,16 +74,6 @@ export const TIER_UPGRADE_LABEL: Record<MembershipTier, string> = {
 /** Pure check: does a tier grant a capability? */
 export function tierHasCapability(tier: MembershipTier, capability: Capability): boolean {
   return TIER_CAPABILITIES[tier]?.has(capability) ?? false;
-}
-
-/**
- * Whether an agent's ACTIVE subscription grants `capability`. Returns false for
- * agents with no active subscription.
- */
-export async function hasCapability(agentId: string, capability: Capability): Promise<boolean> {
-  const sub = await getActiveSubscription(agentId);
-  if (!sub) return false;
-  return tierHasCapability(sub.membershipTier, capability);
 }
 
 /** Whether a requested group subtype is organization-grade (gated). */

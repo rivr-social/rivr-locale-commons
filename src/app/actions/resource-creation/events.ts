@@ -9,7 +9,7 @@ import {
   type VisibilityLevel,
 } from "@/db/schema";
 import { and, eq, sql } from "drizzle-orm";
-import { hasCapability } from "@/lib/entitlements";
+import { hasCapability } from "@/lib/entitlements-server";
 
 import {
   resolveAuthenticatedUserId,
