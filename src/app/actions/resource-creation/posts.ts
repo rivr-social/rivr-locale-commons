@@ -12,7 +12,8 @@ import {
 } from "@/db/schema";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { getActiveSubscription, hasEntitlement } from "@/lib/billing";
+import { getActiveSubscription } from "@/lib/billing";
+import { hasCapability } from "@/lib/entitlements";
 import { embedResource, scheduleEmbedding } from "@/lib/ai";
 import { getAgent } from "@/lib/queries/agents";
 import { syncMurmurationsProfilesForActor } from "@/lib/murmurations";
@@ -716,20 +717,21 @@ export async function createPostCommerceResource(input: {
   // queueEntityExportEvents' visibility filter keeps private content local.
   const federationNode = await ensureLocalNode();
 
-  // Paid inline offerings require "seller" tier (or higher).
+  // Paid inline offerings require the sell_offerings capability (Seller /
+  // Provider / Organization / Steward / Worker — NOT Host).
   if (input.createOffering) {
     const inlineOfferingPriceCents = validatedOfferingItems.length > 0
       ? validatedOfferingItems.reduce((sum, item) => sum + (item.priceCents ?? 0), 0)
       : (input.createOffering.basePriceCents ?? 0);
     if (inlineOfferingPriceCents > 0) {
-      const canSell = await hasEntitlement(userId, "seller");
+      const canSell = await hasCapability(userId, "sell_offerings");
       if (!canSell) {
         return {
           success: false,
-          message: "Selling paid offerings requires a Seller membership or higher.",
+          message: "Selling paid offerings requires a Seller, Provider, or Organization membership.",
           error: {
             code: "SUBSCRIPTION_REQUIRED",
-            details: "Subscribe to Seller (or higher) to sell offerings.",
+            details: "Subscribe to Seller, Provider, or Organization to sell offerings.",
             requiredTier: "seller",
           },
         };
