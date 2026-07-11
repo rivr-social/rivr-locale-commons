@@ -13,7 +13,7 @@ import {
   createLoginLink,
 } from '@/lib/stripe-connect';
 import { updateFacade, emitDomainEvent, EVENT_TYPES } from '@/lib/federation';
-import { getCurrentUserId, resolveManagedWalletTarget } from './helpers';
+import { getCurrentUserId, getCurrentUserIdForWrite, resolveManagedWalletTarget } from './helpers';
 import { isPositiveInteger } from './types';
 
 export async function releaseTestConnectBalanceToWalletInternal(
@@ -113,7 +113,7 @@ export async function setupConnectAccountAction(
   url?: string;
   error?: string;
 }> {
-  const currentUserId = await getCurrentUserId();
+  const currentUserId = await getCurrentUserIdForWrite();
   if (!currentUserId) {
     return { success: false, error: 'You must be logged in to set up payments.' };
   }
@@ -307,7 +307,7 @@ export async function releaseTestConnectBalanceToWalletAction(ownerId?: string):
   releasedCents?: number;
   error?: string;
 }> {
-  const currentUserId = await getCurrentUserId();
+  const currentUserId = await getCurrentUserIdForWrite();
   if (!currentUserId) {
     return { success: false, error: 'You must be logged in.' };
   }
@@ -351,7 +351,7 @@ export async function requestPayoutAction(
   speed: 'standard' | 'instant' = 'standard',
   ownerId?: string
 ): Promise<{ success: boolean; payoutId?: string; error?: string }> {
-  const currentUserId = await getCurrentUserId();
+  const currentUserId = await getCurrentUserIdForWrite();
   if (!currentUserId) {
     return { success: false, error: 'You must be logged in.' };
   }

@@ -1,17 +1,25 @@
 "use server";
 
 import { and, eq, sql } from "drizzle-orm";
-import { auth } from "@/auth";
 import { db } from "@/db";
 import { agents, ledger, resources } from "@/db/schema";
 import type { NewLedgerEntry } from "@/db/schema";
 import { getFederationExecutionContext } from "@/lib/federation/execution-context";
+import { getSession } from "@/lib/auth/get-session";
+import { resolveLocalActorId } from "@/lib/federation/resolution";
 
 import type { ActionResult, TargetType } from "./types";
 import { isUuid } from "./types";
 
 /**
- * Resolves the authenticated user ID from the active session.
+ * Resolves the authenticated user ID from the active execution context or
+ * session. Precedence: MCP/federation execution context (forwarded mutations),
+ * then a unified session — a local NextAuth JWT or a federated remote-viewer
+ * cookie. Federated ids normalize to THIS instance's local agent id
+ * (`resolveLocalActorId`); plain `auth()` ignored the remote-viewer cookie, so
+ * federated members were locked out of job-apply / RSVP / ticket writes
+ * (2026-07-11 payment-rail sweep). No projection here — the interaction write
+ * paths are already projection-safe via `federatedWrite`.
  */
 export async function getCurrentUserId() {
   const federationContext = getFederationExecutionContext();
@@ -19,8 +27,16 @@ export async function getCurrentUserId() {
     return federationContext.actorId;
   }
 
-  const session = await auth();
-  return session?.user?.id ?? null;
+  const session = await getSession();
+  if (!session?.user?.id) {
+    return null;
+  }
+
+  if (session.user.authMethod === "federated") {
+    return resolveLocalActorId(session.user.id);
+  }
+
+  return session.user.id;
 }
 
 /**

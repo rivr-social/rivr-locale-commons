@@ -9,7 +9,9 @@
  * `@node-rs/bcrypt`, `next/headers`, `drizzle-orm`
  */
 
-import { auth } from "@/auth";
+import { getSession } from "@/lib/auth/get-session";
+import { resolveLocalActorId } from "@/lib/federation/resolution";
+import { ensureLocalActorAgent } from "@/lib/federation/actor-projection";
 import { db } from "@/db";
 import { agents, ledger } from "@/db/schema";
 import type { NewLedgerEntry } from "@/db/schema";
@@ -97,7 +99,11 @@ export async function challengeGroupAccess(
   groupId: string,
   password: string
 ): Promise<GroupAccessResult> {
-  const session = await auth();
+  // Unified session so a federated remote-viewer (SSO'd from their home
+  // instance, no local NextAuth JWT) can pass a group password challenge —
+  // plain `auth()` 401'd them (2026-07-11 payment-rail sweep). Federated ids
+  // normalize to THIS instance's local agent id before the membership write.
+  const session = await getSession();
   if (!session?.user?.id) {
     return { success: false, error: "Authentication required." };
   }
@@ -110,7 +116,15 @@ export async function challengeGroupAccess(
     return { success: false, error: "Password is required." };
   }
 
-  const actorId = session.user.id;
+  const actorId =
+    session.user.authMethod === "federated"
+      ? await resolveLocalActorId(session.user.id)
+      : session.user.id;
+
+  // Project the verified principal locally before the membership ledger write
+  // so a first-contact federated member's `ledger.subject_id` FK holds. No-op
+  // for the owner, local members, and anyone already projected (c0ed020).
+  await ensureLocalActorAgent(actorId);
 
   const facadeResult = await updateFacade.execute(
     {
@@ -239,7 +253,9 @@ export async function revokeGroupMembership(
   groupId: string,
   memberId: string
 ): Promise<GroupAccessResult> {
-  const session = await auth();
+  // Unified session; a federated member/admin revoking membership already has a
+  // local agent row (they joined earlier), so resolve the id but no projection.
+  const session = await getSession();
   if (!session?.user?.id) {
     return { success: false, error: "Authentication required." };
   }
@@ -252,7 +268,10 @@ export async function revokeGroupMembership(
     return { success: false, error: "Invalid member identifier." };
   }
 
-  const actorId = session.user.id;
+  const actorId =
+    session.user.authMethod === "federated"
+      ? await resolveLocalActorId(session.user.id)
+      : session.user.id;
 
   const facadeResult = await updateFacade.execute(
     {
@@ -337,7 +356,9 @@ export async function revokeGroupMembership(
 export async function renewGroupMembership(
   groupId: string
 ): Promise<GroupAccessResult> {
-  const session = await auth();
+  // Unified session; renewal requires a prior password-challenge grant, so the
+  // federated member already has a local agent row — resolve, no projection.
+  const session = await getSession();
   if (!session?.user?.id) {
     return { success: false, error: "Authentication required." };
   }
@@ -346,7 +367,10 @@ export async function renewGroupMembership(
     return { success: false, error: "Invalid group identifier." };
   }
 
-  const actorId = session.user.id;
+  const actorId =
+    session.user.authMethod === "federated"
+      ? await resolveLocalActorId(session.user.id)
+      : session.user.id;
 
   const facadeResult = await updateFacade.execute(
     {
@@ -454,7 +478,9 @@ export async function renewGroupMembership(
 export async function checkGroupMembership(
   groupId: string
 ): Promise<MembershipCheckResult> {
-  const session = await auth();
+  // Unified session; read-only membership probe, so resolve the federated id
+  // to the local agent but never project (would create rows for mere viewers).
+  const session = await getSession();
   if (!session?.user?.id) {
     return { isMember: false };
   }
@@ -463,7 +489,12 @@ export async function checkGroupMembership(
     return { isMember: false };
   }
 
-  const membership = await findActiveMembership(session.user.id, groupId);
+  const actorId =
+    session.user.authMethod === "federated"
+      ? await resolveLocalActorId(session.user.id)
+      : session.user.id;
+
+  const membership = await findActiveMembership(actorId, groupId);
   if (!membership) {
     return { isMember: false };
   }
@@ -484,17 +515,24 @@ export async function fetchGroupJoinRuntime(
     return { joined: true };
   }
 
-  const session = await auth();
+  // Unified session; read-only pending-request lookup, so resolve the federated
+  // id to the local agent (the request row is keyed on it) but never project.
+  const session = await getSession();
   if (!session?.user?.id || !groupId || !UUID_RE.test(groupId)) {
     return { joined: false };
   }
+
+  const actorId =
+    session.user.authMethod === "federated"
+      ? await resolveLocalActorId(session.user.id)
+      : session.user.id;
 
   const [request] = await db
     .select({ id: ledger.id })
     .from(ledger)
     .where(
       and(
-        eq(ledger.subjectId, session.user.id),
+        eq(ledger.subjectId, actorId),
         eq(ledger.objectId, groupId),
         eq(ledger.verb, "join"),
         sql`${ledger.metadata}->>'interactionType' = 'membership_request'`,
@@ -517,7 +555,10 @@ export async function requestGroupMembership(
     inviteToken?: string;
   }
 ): Promise<GroupAccessResult> {
-  const session = await auth();
+  // Unified session so a federated remote-viewer can join/apply — plain
+  // `auth()` 401'd them (2026-07-11 sweep). Federated ids normalize to the
+  // local agent id before the membership/request ledger writes.
+  const session = await getSession();
   if (!session?.user?.id) {
     return { success: false, error: "Authentication required." };
   }
@@ -526,7 +567,17 @@ export async function requestGroupMembership(
     return { success: false, error: "Invalid group identifier." };
   }
 
-  const actorId = session.user.id;
+  const actorId =
+    session.user.authMethod === "federated"
+      ? await resolveLocalActorId(session.user.id)
+      : session.user.id;
+
+  // First-contact enrollment: a federated remote-viewer joining before any
+  // local write has no `agents` row on this sovereign, so the `ledger.subject_id`
+  // FK below would fail and the join silently no-op'd (c0ed020). Project a
+  // private local mirror of the verified principal first; no-op for the owner,
+  // local members, and anyone already projected.
+  await ensureLocalActorAgent(actorId);
 
   const facadeResult = await updateFacade.execute(
     {
@@ -699,7 +750,9 @@ export async function requestGroupMembership(
 export async function fetchGroupJoinRequests(
   groupId: string
 ): Promise<JoinRequestListResult> {
-  const session = await auth();
+  // Unified session; read-only admin view, so resolve the federated id to the
+  // local agent for the admin-authorization check but never project.
+  const session = await getSession();
   if (!session?.user?.id) {
     return { success: false, error: "Authentication required." };
   }
@@ -708,7 +761,12 @@ export async function fetchGroupJoinRequests(
     return { success: false, error: "Invalid group identifier." };
   }
 
-  const isAdmin = await resolveGroupAdminAuthorization(session.user.id, groupId);
+  const actorId =
+    session.user.authMethod === "federated"
+      ? await resolveLocalActorId(session.user.id)
+      : session.user.id;
+
+  const isAdmin = await resolveGroupAdminAuthorization(actorId, groupId);
   if (!isAdmin) {
     return { success: false, error: "Only group admins can view join requests." };
   }
@@ -769,7 +827,10 @@ export async function reviewGroupJoinRequest(
   decision: "approved" | "rejected",
   adminNotes?: string
 ): Promise<{ success: boolean; error?: string }> {
-  const session = await auth();
+  // Unified session; the REVIEWER is a local admin whose federated id resolves
+  // to the local agent (no projection — an admin already has a local row). The
+  // APPLICANT id comes from the stored request row (already a local id).
+  const session = await getSession();
   if (!session?.user?.id) {
     return { success: false, error: "Authentication required." };
   }
@@ -778,7 +839,10 @@ export async function reviewGroupJoinRequest(
     return { success: false, error: "Invalid request identifier." };
   }
 
-  const actorId = session.user.id;
+  const actorId =
+    session.user.authMethod === "federated"
+      ? await resolveLocalActorId(session.user.id)
+      : session.user.id;
 
   const facadeResult = await updateFacade.execute(
     {

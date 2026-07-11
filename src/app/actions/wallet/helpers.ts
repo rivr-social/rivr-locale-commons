@@ -1,14 +1,69 @@
 'use server';
 
 import { eq } from 'drizzle-orm';
-import { auth } from '@/auth';
 import { db } from '@/db';
 import { agents } from '@/db/schema';
+import { getSession } from '@/lib/auth/get-session';
+import { getFederationExecutionContext } from '@/lib/federation/execution-context';
+import { resolveLocalActorId } from '@/lib/federation/resolution';
+import { ensureLocalActorAgent } from '@/lib/federation/actor-projection';
 import { getSettlementWalletForAgent } from '@/lib/wallet';
 
+/**
+ * Unified viewer resolution for all wallet/treasury actions: MCP/federation
+ * execution context, a local NextAuth session, or a federated remote-viewer
+ * cookie — with federated ids normalized to THIS instance's local agent id
+ * (`resolveLocalActorId`). Plain `auth()` made every treasury surface
+ * invisible to sovereign-homed members viewing via SSO (2026-07-11 payment-rail
+ * sweep). READ paths use this; WRITE paths use {@link getCurrentUserIdForWrite}.
+ */
 export async function getCurrentUserId(): Promise<string | null> {
-  const session = await auth();
-  return session?.user?.id ?? null;
+  const federationContext = getFederationExecutionContext();
+  if (federationContext?.actorId) {
+    return federationContext.actorId;
+  }
+
+  const session = await getSession();
+  if (!session?.user?.id) {
+    return null;
+  }
+
+  if (session.user.authMethod === 'federated') {
+    return resolveLocalActorId(session.user.id);
+  }
+
+  return session.user.id;
+}
+
+/**
+ * {@link getCurrentUserId} plus first-contact projection for actor-keyed
+ * WRITES (wallet FK, Stripe customer creation, ledger `subject_id`). A
+ * federated remote-viewer's first economic action on this sovereign may
+ * precede any local `agents` row, so keyed writes threw "Agent not found" /
+ * FK violations (toybox campaign 2026-07-11). `ensureLocalActorAgent`
+ * materializes the private verified-principal mirror; it is a no-op for local
+ * users, MCP contexts, and already-projected members. Read paths should keep
+ * using {@link getCurrentUserId} — projecting on read would create agent rows
+ * for mere viewers.
+ */
+export async function getCurrentUserIdForWrite(): Promise<string | null> {
+  const federationContext = getFederationExecutionContext();
+  if (federationContext?.actorId) {
+    return federationContext.actorId;
+  }
+
+  const session = await getSession();
+  if (!session?.user?.id) {
+    return null;
+  }
+
+  if (session.user.authMethod === 'federated') {
+    const localActorId = await resolveLocalActorId(session.user.id);
+    await ensureLocalActorAgent(localActorId);
+    return localActorId;
+  }
+
+  return session.user.id;
 }
 
 export async function getAgentRecord(agentId: string): Promise<{

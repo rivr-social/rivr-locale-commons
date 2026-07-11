@@ -7,7 +7,7 @@ import { ledger } from '@/db/schema';
 import type { NewLedgerEntry } from '@/db/schema';
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { updateFacade, emitDomainEvent, EVENT_TYPES } from '@/lib/federation';
-import { getCurrentUserId } from './helpers';
+import { getCurrentUserIdForWrite } from './helpers';
 import { isUuid, isPositiveInteger } from './types';
 
 // =============================================================================
@@ -39,7 +39,7 @@ export async function requestFamilyWithdrawalAction(
   amountCents: number,
   purpose: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const agentId = await getCurrentUserId();
+  const agentId = await getCurrentUserIdForWrite();
   if (!agentId) {
     return { success: false, error: 'You must be logged in to request a withdrawal.' };
   }
