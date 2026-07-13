@@ -41,6 +41,11 @@ import {
   createEventResource,
 } from "@/app/actions/resource-creation/events";
 import {
+  purchaseWithWalletAction,
+  purchaseEventTicketsWithWalletAction,
+  createProvidePaymentAction,
+} from "@/app/actions/wallet/purchases";
+import {
   challengeGroupAccess,
   revokeGroupMembership,
   renewGroupMembership,
@@ -71,6 +76,9 @@ const KNOWN_MUTATION_TYPES = [
   "applyToJob",
   "createMutualAssetAction",
   "bookAssetAction",
+  "purchaseWithWalletAction",
+  "purchaseEventTicketsWithWalletAction",
+  "createProvidePaymentAction",
   "sendVoucherAction",
   "createVoucherAction",
   "claimVoucherAction",
@@ -97,6 +105,14 @@ type MutationRequestBody = {
   actorId?: string;
   targetAgentId?: string;
   payload?: unknown;
+  /**
+   * Buyer rail (open-issues P0) — home-signed actor-identity assertion. Present
+   * when the forwarder is the actor's home and vouches for a cross-instance
+   * actor this receiver has no `federation_entity_map` binding for yet. Verified
+   * against the authenticated peer's registered key, then used to materialize +
+   * bind the actor. Additive; absence keeps the strict rejection unchanged.
+   */
+  actorAssertion?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -143,7 +159,38 @@ export async function POST(request: Request) {
       );
     }
 
-    const actorBinding = await bindAuthorizedFederationActor(authorization, actorId);
+    let actorBinding = await bindAuthorizedFederationActor(authorization, actorId);
+
+    // Buyer rail (open-issues P0): when a peer-authenticated forward names an
+    // actor we have no binding for, but carries a valid home-signed actor
+    // assertion, verify it against the peer's registered key and materialize +
+    // bind the actor via the existing projection rail, THEN re-bind. Absent or
+    // invalid assertion → the strict F1 rejection below is preserved unchanged.
+    // Guarded to peer-secret auth (cookie visitors carry no peerNodeId).
+    if (
+      (!actorBinding.authorized || !actorBinding.actorId) &&
+      authorization.peerNodeId &&
+      body.actorAssertion &&
+      actorId
+    ) {
+      const { resolveOwnerRoutedActor } = await import(
+        "@/lib/federation/owner-routed-actor"
+      );
+      const materialized = await resolveOwnerRoutedActor({
+        peerNodeId: authorization.peerNodeId,
+        audienceBaseUrl: config.baseUrl,
+        requestedActorId: actorId,
+        assertion: body.actorAssertion,
+      });
+      if (materialized.ok) {
+        actorBinding = await bindAuthorizedFederationActor(authorization, actorId);
+      } else {
+        console.warn(
+          `[federation/mutations] owner-routed actor assertion rejected from ${remoteInstanceSlug}: ${materialized.reason}`,
+        );
+      }
+    }
+
     if (!actorBinding.authorized || !actorBinding.actorId) {
       return NextResponse.json(
         { success: false, error: actorBinding.reason ?? "Actor authorization failed" },
@@ -372,6 +419,29 @@ async function dispatchLegacyMutation(
         return createMutualAssetAction(record as Parameters<typeof createMutualAssetAction>[0]);
       case "bookAssetAction":
         return bookAssetAction(record as Parameters<typeof bookAssetAction>[0]);
+      // Buyer rail (open-issues P0): in-app wallet purchases + provide-payment.
+      // The actor was already bound to this instance's local id (strict
+      // entity-map lookup or the materialize-then-bind assertion fallback) and
+      // the switch runs in runWithFederationExecutionContext, so each action's
+      // own getCurrentUserIdForWrite resolves the federated buyer as a local
+      // session and its balance/authority checks run against THIS graph.
+      case "purchaseWithWalletAction":
+        return purchaseWithWalletAction(
+          requireString(record, "listingId"),
+          requireNumber(record, "subtotalCents"),
+          optionalString(record, "dealPostId"),
+          optionalString(record, "bookingDate"),
+          optionalString(record, "bookingSlot"),
+        );
+      case "purchaseEventTicketsWithWalletAction":
+        return purchaseEventTicketsWithWalletAction(
+          requireString(record, "eventId"),
+          requireArray(record, "selections") as Parameters<
+            typeof purchaseEventTicketsWithWalletAction
+          >[1],
+        );
+      case "createProvidePaymentAction":
+        return createProvidePaymentAction(requireString(record, "offeringId"));
       case "sendVoucherAction":
         return sendVoucherAction(
           requireString(record, "voucherId"),
@@ -465,6 +535,22 @@ function requireString(payload: Record<string, unknown>, key: string): string {
 function optionalString(payload: Record<string, unknown>, key: string): string | undefined {
   const value = payload[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function requireNumber(payload: Record<string, unknown>, key: string): number {
+  const value = payload[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`Missing or non-numeric payload field: ${key}`);
+  }
+  return value;
+}
+
+function requireArray(payload: Record<string, unknown>, key: string): unknown[] {
+  const value = payload[key];
+  if (!Array.isArray(value)) {
+    throw new Error(`Missing or non-array payload field: ${key}`);
+  }
+  return value;
 }
 
 function readString(payload: Record<string, unknown>, key: string, fallback: string): string {
