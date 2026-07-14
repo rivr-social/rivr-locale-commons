@@ -28,6 +28,8 @@ import {
   filterPubliclyCrawlableResources,
 } from "./helpers";
 import { isUuid, isAnonymousCrawlableVisibility } from "./types";
+import { resolveEntityHref } from "@/lib/federation/entity-link";
+import { getInstanceConfig } from "@/lib/federation/instance-config";
 
 import type { SerializedGroupRelationship, MemberInfo } from "./types";
 
@@ -225,11 +227,20 @@ export async function fetchGroupBadges(groupId: string): Promise<SerializedResou
  */
 export async function fetchGroupLineage(
   groupId: string,
-): Promise<Array<{ id: string; name: string; type: string; groupType: string | null }>> {
+): Promise<Array<{ id: string; name: string; type: string; groupType: string | null; homeHref: string }>> {
   if (!isUuid(groupId)) return [];
-  const lineage: Array<{ id: string; name: string; type: string; groupType: string | null }> = [];
+  const lineage: Array<{ id: string; name: string; type: string; groupType: string | null; homeHref: string }> = [];
   const seen = new Set<string>([groupId]);
   let cursor: string | null = null;
+
+  // Loop guard for the canonical link resolver: a home stamp pointing back at
+  // our own host is treated as local. Tolerates a missing instance config.
+  let selfBaseUrl: string | null = null;
+  try {
+    selfBaseUrl = getInstanceConfig().baseUrl;
+  } catch {
+    selfBaseUrl = null;
+  }
 
   const self = await q<Agent | null>("optional", { table: "agents", fn: "getAgent", id: groupId }, {
     serialize: "raw",
@@ -246,11 +257,15 @@ export async function fetchGroupLineage(
     });
     if (!parent || parent.deletedAt) break;
     const meta = (parent.metadata ?? {}) as Record<string, unknown>;
+    // Ancestors are group-type agents (render locally at /groups/[id]); a
+    // federated projection carries a home stamp and routes to its sovereign home.
+    const { href: homeHref } = resolveEntityHref(parent.metadata, `/groups/${parent.id}`, { selfBaseUrl });
     lineage.unshift({
       id: parent.id,
       name: parent.name,
       type: String(parent.type ?? ""),
       groupType: typeof meta.groupType === "string" ? meta.groupType : null,
+      homeHref,
     });
     cursor = parent.parentId ?? null;
   }

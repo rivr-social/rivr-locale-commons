@@ -1,5 +1,6 @@
 import Image from "next/image"
 import Link from "next/link"
+import { CanonicalLink } from "@/components/canonical-link"
 import { notFound } from "next/navigation"
 import { CheckCircle, ArrowRight, MessageCircle } from "lucide-react"
 
@@ -83,9 +84,9 @@ export default async function MarketplaceItemConfirmedPage({ params }: { params:
         </Button>
 
         <Button asChild variant="outline" className="w-full">
-          <Link href={ownerHref}>
+          <CanonicalLink href={ownerHref}>
             View {listing.ownerKind === "group" ? "Owner" : "Seller"}
-          </Link>
+          </CanonicalLink>
         </Button>
 
         <Button asChild variant="outline" className="w-full">

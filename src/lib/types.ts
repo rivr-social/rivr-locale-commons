@@ -653,10 +653,11 @@ export type Ring = {
   id: string
   name: string
   /**
-   * Canonical link target for this ring. This locale app has no local
-   * `/rings/<id>` route, so this is an absolute URL on the ring's sovereign
-   * HOME instance when it is a remote federated projection, else the global
-   * aggregator URL. Stamped by `agentToRing`; render with `<CanonicalLink>`.
+   * Canonical link target for this ring. Rings render locally AS groups at
+   * `/groups/<id>` here (no dedicated `/rings` route), so this is that local
+   * path when the ring is locally homed, or an absolute URL on the ring's
+   * sovereign HOME instance when it is a remote federated projection. Stamped
+   * by `agentToRing`; render with `<CanonicalLink>`.
    */
   homeHref?: string
   description: string
@@ -695,11 +696,11 @@ export type Family = {
   id: string
   name: string
   /**
-   * Canonical link target for this family. This locale app has no local
-   * `/families/<id>` route, so this is an absolute URL on the family's
-   * sovereign HOME instance when it is a remote federated projection, else the
-   * global aggregator URL. Stamped by `agentToFamily`; render with
-   * `<CanonicalLink>`.
+   * Canonical link target for this family. Families render locally AS groups at
+   * `/groups/<id>` here (no dedicated `/families` route), so this is that local
+   * path when the family is locally homed, or an absolute URL on the family's
+   * sovereign HOME instance when it is a remote federated projection. Stamped
+   * by `agentToFamily`; render with `<CanonicalLink>`.
    */
   homeHref?: string
   description: string

@@ -13,10 +13,12 @@
  *       composition, and the self-host loop guard (a stamp pointing back at our
  *       own host is treated as local).
  *
- * On this locale app groups/projects/profiles render locally (globalFallback
- * false) while rings/families have no local route (globalFallback true) — the
- * resolver itself is class-agnostic, so these cases exercise both fallback modes
- * directly with representative local paths.
+ * This locale app renders every entity class locally (groups incl.
+ * rings/families, projects, profiles), so its callers always pass
+ * `globalFallback: false`. The resolver itself is class-agnostic, so these
+ * cases still exercise BOTH fallback modes directly (the `globalFallback: true`
+ * cases stand in for a hypothetical class with no local page) to lock the pure
+ * function's contract.
  *
  * `./global-url` is mocked so `globalFallback` assertions are deterministic and
  * independent of REGISTRY_URL / NEXT_PUBLIC_* env resolution.

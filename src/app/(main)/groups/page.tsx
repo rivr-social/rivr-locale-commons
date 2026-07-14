@@ -24,6 +24,7 @@ import { LocaleSwitcher } from "@/components/locale-switcher"
 import { Plus } from "lucide-react"
 import { useGroups } from "@/lib/hooks/use-graph-data"
 import Link from "next/link"
+import { CanonicalLink } from "@/components/canonical-link"
 import Image from "next/image"
 import { useAppContext } from "@/contexts/app-context"
 import { useLocalesAndBasins } from "@/lib/hooks/use-graph-data"
@@ -116,7 +117,7 @@ export default function GroupsPage() {
             <p className="text-sm text-gray-500 text-center py-8">No groups found.</p>
           ) : (
             filteredGroups.map((group) => (
-              <Link href={`/groups/${group.id}`} key={group.id} className="flex items-center gap-4 py-2">
+              <CanonicalLink href={group.homeHref ?? `/groups/${group.id}`} key={group.id} className="flex items-center gap-4 py-2">
                 <div className="h-12 w-12 rounded-md overflow-hidden bg-muted flex items-center justify-center">
                   <Image
                     src={group.avatar || group.image || "/placeholder-event.jpg"}
@@ -132,7 +133,7 @@ export default function GroupsPage() {
                     {group.description?.slice(0, 50) || resolveGroupLocation(group)}
                   </p>
                 </div>
-              </Link>
+              </CanonicalLink>
             ))
           )}
         </div>

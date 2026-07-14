@@ -13,16 +13,17 @@
  *     Next.js `<Link>` prefetch — cross-origin RSC prefetch is the CSP-flash
  *     class).
  *
- * This locale/commons app aggregates a bioregion: it DOES render groups
- * (`/groups/[id]`), projects (`/projects/[id]`) and profiles (`/profile/[u]`)
- * locally, but has NO `/rings/[id]` or `/families/[id]` route. So a locally-homed
- * group/project/person resolves to a renderable LOCAL page, while a locally-homed
- * ring/family has nowhere local to land — for those classes the caller passes
- * `globalFallback: true` so an entity with no federated home stamp routes to the
- * global aggregator (`app.rivr.social`) instead of a bare local path that 404s.
- * A federated projection of ANY class always routes to its true sovereign home
- * (the class of bug this module fixes: e.g. a Spirit membership whose only home
- * stamp is `federatedHomeBaseUrl` was being sent to a local path and 404ing).
+ * This locale/commons app aggregates a bioregion and renders EVERY entity class
+ * locally: groups AND rings/families (all at `/groups/[id]` — that page's
+ * group-type set includes ring/family; there is no dedicated `/rings|/families`
+ * route), projects (`/projects/[id]`) and profiles (`/profile/[u]`). So a
+ * locally-homed entity resolves to a renderable LOCAL page (`globalFallback` is
+ * left `false`), while a federated projection of ANY class routes to its true
+ * sovereign home (the class of bug this module fixes: e.g. a Spirit membership
+ * whose only home stamp is `federatedHomeBaseUrl` was being sent to a local path
+ * and 404ing). The `globalFallback: true` mode remains for a hypothetical class
+ * with no local page — a caller with no local route routes an unstamped entity
+ * to the global aggregator (`app.rivr.social`) instead of a bare 404ing path.
  *
  * Home-base resolution order mirrors `resolveHomeInstance` /
  * `resolveViaHomeBaseUrlMetadata` in `./resolution`, extended with
@@ -108,10 +109,10 @@ export interface ResolveEntityHrefOptions {
   /**
    * When the entity has no federated home stamp (locally-homed/unknown), route
    * the local path through the global aggregator instead of returning it
-   * verbatim. Pass `true` for entity classes this instance cannot render as a
-   * local page (e.g. rings/families on this locale app, which has no
-   * `/rings/[id]` or `/families/[id]` route); leave `false` for
-   * locally-renderable classes (groups, projects, person profiles).
+   * verbatim. Pass `true` only for an entity class this instance cannot render
+   * as a local page; leave `false` for locally-renderable classes. This locale
+   * app renders every class locally (groups incl. rings/families, projects,
+   * profiles), so callers here pass `false`.
    */
   globalFallback?: boolean;
 }

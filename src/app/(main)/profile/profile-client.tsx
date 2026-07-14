@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { CanonicalLink } from "@/components/canonical-link";
+import { resolveEntityHref } from "@/lib/federation/entity-link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -368,7 +370,14 @@ function getEventStart(event: Record<string, unknown>): string {
   return asString(event.startDate) || STABLE_FALLBACK_TIMESTAMP;
 }
 
-function getActivityObjectHref(
+/**
+ * Local route for an activity object on THIS instance. Rings and families are
+ * group-type agents and render AS groups at `/groups/[id]` (this app has no
+ * dedicated `/rings|/families` route), so they must NOT emit a bare
+ * `/rings|/families/<id>` path (which 404s). The canonical href is derived from
+ * this local path by {@link getActivityObjectHref} via `resolveEntityHref`.
+ */
+function getActivityObjectLocalPath(
   object: {
     id: string;
     kind: "agent" | "resource";
@@ -380,8 +389,8 @@ function getActivityObjectHref(
 
   if (object.kind === "agent") {
     if (object.type === "organization") return `/groups/${object.id}`;
-    if (object.type === "ring") return `/rings/${object.id}`;
-    if (object.type === "family") return `/families/${object.id}`;
+    if (object.type === "ring") return `/groups/${object.id}`;
+    if (object.type === "family") return `/groups/${object.id}`;
     if (object.type === "person") {
       const username = asString(object.metadata?.username);
       return `/profile/${username || object.id}`;
@@ -406,6 +415,26 @@ function getActivityObjectHref(
   }
 
   return null;
+}
+
+/**
+ * Canonical href for an activity object: the local route when it is homed on /
+ * renderable by THIS instance, else the absolute URL on its sovereign HOME
+ * instance (a federated projection carrying a `homeBaseUrl`/`federatedHomeBaseUrl`/
+ * `canonicalUrl` stamp in its metadata). Render with `<CanonicalLink>` so a
+ * cross-origin href becomes a plain anchor. See `resolveEntityHref`.
+ */
+function getActivityObjectHref(
+  object: {
+    id: string;
+    kind: "agent" | "resource";
+    type: string;
+    metadata?: Record<string, unknown>;
+  } | null | undefined
+): string | null {
+  const localPath = getActivityObjectLocalPath(object);
+  if (!localPath || !object) return null;
+  return resolveEntityHref(object.metadata, localPath).href;
 }
 
 function getActivityObjectImage(
@@ -495,12 +524,12 @@ function ActivityObjectCard({
   }
 
   return (
-    <Link
+    <CanonicalLink
       href={href}
       className="block rounded-lg border bg-muted/20 p-3 transition-colors hover:bg-muted/40"
     >
       {content}
-    </Link>
+    </CanonicalLink>
   );
 }
 

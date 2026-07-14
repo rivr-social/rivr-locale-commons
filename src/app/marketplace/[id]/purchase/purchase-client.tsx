@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import Link from "next/link"
+import { CanonicalLink } from "@/components/canonical-link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSession } from "next-auth/react"
 import Image from "next/image"
@@ -708,13 +708,13 @@ export function PurchasePageClient({ id }: { id: string }) {
             ) : null}
 
             <div className="mt-4 flex items-center gap-2 flex-wrap text-sm">
-              <Link href={listing.ownerPath || `/profile/${seller.username || seller.id}`} className="flex items-center">
+              <CanonicalLink href={listing.ownerPath || `/profile/${seller.username || seller.id}`} className="flex items-center">
                 <Avatar className="h-6 w-6 mr-2">
                   <AvatarImage src={seller.avatar || "/placeholder.svg"} alt={seller.name} />
                   <AvatarFallback className="text-xs">{seller.name.charAt(0)}</AvatarFallback>
                 </Avatar>
                 <span>{seller.name}</span>
-              </Link>
+              </CanonicalLink>
               <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
                 {listing.ownerLabel || "Member offer"}
               </Badge>

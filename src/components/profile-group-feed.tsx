@@ -14,12 +14,19 @@ import { Button } from "@/components/ui/button"
 import { MapPin, Users, Calendar, Crown, Shield, Star, Building2 } from "lucide-react"
 import { TypeBadge } from "@/components/type-badge"
 import { TypeIcon } from "@/components/type-icon"
-import Link from "next/link"
+import { CanonicalLink } from "@/components/canonical-link"
 import { GroupType, type User } from "@/lib/types"
 
 type Group = {
   id: string
   name: string
+  /**
+   * Canonical link target stamped by `agentToGroup`/`agentToRing`/`agentToFamily`:
+   * the local `/groups/[id]` path for a locally-homed group (incl. ring/family,
+   * which render AS groups here), else an absolute sovereign-home URL for a
+   * federated projection. Render with `<CanonicalLink>`.
+   */
+  homeHref?: string
   description: string
   members?: string[]
   adminIds?: string[]
@@ -191,18 +198,14 @@ export function ProfileGroupFeed({
                   </Avatar>
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <Link
-                        href={
-                          group.type === GroupType.Ring
-                            ? `/rings/${group.id}`
-                            : group.type === GroupType.Family
-                              ? `/families/${group.id}`
-                              : `/groups/${group.id}`
-                        }
+                      {/* Groups, rings and families all render at /groups/[id] here.
+                          Local → stamped local path; federated projection → sovereign home. */}
+                      <CanonicalLink
+                        href={group.homeHref ?? `/groups/${group.id}`}
                         className="text-xl font-bold hover:underline"
                       >
                         {group.name}
-                      </Link>
+                      </CanonicalLink>
                       <TypeIcon 
                         type={
                           group.type === GroupType.Ring ? "ring" :
@@ -320,19 +323,11 @@ export function ProfileGroupFeed({
               </div>
               
               <div className="flex gap-2">
-                <Link
-                  href={
-                    group.type === GroupType.Ring
-                      ? `/rings/${group.id}`
-                      : group.type === GroupType.Family
-                        ? `/families/${group.id}`
-                        : `/groups/${group.id}`
-                  }
-                >
+                <CanonicalLink href={group.homeHref ?? `/groups/${group.id}`}>
                   <Button variant="outline" size="sm">
                     View Group
                   </Button>
-                </Link>
+                </CanonicalLink>
                 {userRole.role !== "Not a Member" && (
                   <Button
                     variant="default"
