@@ -1,4 +1,7 @@
 import Link from "next/link"
+import { CanonicalLink } from "@/components/canonical-link"
+import { resolveEntityHref } from "@/lib/federation/entity-link"
+import { getInstanceConfig } from "@/lib/federation/instance-config"
 import Image from "next/image"
 import { notFound } from "next/navigation"
 import type { Metadata } from "next"
@@ -189,6 +192,22 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
 
   // When creator and organizer are the same person, reuse the organizer fetch.
   const resolvedCreator = creatorId === organizerId ? organizer : creator
+
+  // Canonical link resolver loop guard: a home stamp pointing back at our own
+  // host is treated as local; a federated organizer/creator projection routes to
+  // its sovereign profile. Tolerates a missing instance config.
+  let selfBaseUrl: string | null = null
+  try {
+    selfBaseUrl = getInstanceConfig().baseUrl
+  } catch {
+    selfBaseUrl = null
+  }
+  const actorHref = (actor: { id: string; metadata?: Record<string, unknown> | null }) =>
+    resolveEntityHref(
+      actor.metadata,
+      `/profile/${(actor.metadata?.username as string) || actor.id}`,
+      { selfBaseUrl },
+    ).href
   const structuredData = buildEventStructuredData(event, {
     visibility: agent.visibility ?? null,
     organizerName: organizer?.name ?? undefined,
@@ -228,8 +247,8 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
           {organizer ? (
             <div className="bg-background rounded-lg border p-4">
               <p className="text-sm text-muted-foreground mb-2">Presented by</p>
-              <Link
-                href={`/profile/${organizer.metadata?.username || organizer.id}`}
+              <CanonicalLink
+                href={actorHref(organizer)}
                 className="flex items-center gap-3 hover:opacity-80"
               >
                 <Avatar className="h-8 w-8">
@@ -240,7 +259,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
                   <AvatarFallback>{getInitials(organizer.name)}</AvatarFallback>
                 </Avatar>
                 <span className="font-medium">{organizer.name}</span>
-              </Link>
+              </CanonicalLink>
               {event.description ? (
                 <p className="text-sm text-muted-foreground mt-3">
                   {event.description.substring(0, 100)}
@@ -254,8 +273,8 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
           {resolvedCreator ? (
             <div className="bg-background rounded-lg border p-4">
               <p className="text-sm text-muted-foreground mb-2">Hosted By</p>
-              <Link
-                href={`/profile/${resolvedCreator.metadata?.username || resolvedCreator.id}`}
+              <CanonicalLink
+                href={actorHref(resolvedCreator)}
                 className="flex items-center gap-3 hover:opacity-80"
               >
                 <Avatar className="h-8 w-8">
@@ -266,7 +285,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
                   <AvatarFallback>{getInitials(resolvedCreator.name)}</AvatarFallback>
                 </Avatar>
                 <span className="font-medium">{resolvedCreator.name}</span>
-              </Link>
+              </CanonicalLink>
             </div>
           ) : null}
 

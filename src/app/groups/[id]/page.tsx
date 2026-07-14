@@ -239,7 +239,7 @@ export default async function GroupPage({ params }: { params: Promise<{ id: stri
       }
       location={groupLocationText}
       memberCount={members.length || group.memberCount || 0}
-      lineage={groupLineage.map(({ id: lid, name }) => ({ id: lid, name }))}
+      lineage={groupLineage.map(({ id: lid, name, homeHref }) => ({ id: lid, name, homeHref }))}
       tags={group.chapterTags ?? []}
       isAdmin={isGroupAdmin}
     >

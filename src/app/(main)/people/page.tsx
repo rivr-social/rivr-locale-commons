@@ -2,7 +2,7 @@
 import { useState } from "react"
 import { LocaleSwitcher } from "@/components/locale-switcher"
 import { usePeople } from "@/lib/hooks/use-graph-data"
-import Link from "next/link"
+import { CanonicalLink } from "@/components/canonical-link"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 /**
@@ -49,7 +49,7 @@ export default function PeoplePage() {
         ) : (
           // Conditional rendering: when loaded, map each person to a profile link card.
           users.map((user) => (
-            <Link href={`/profile/${user.username || user.id}`} key={user.id} className="flex items-center gap-4 py-2">
+            <CanonicalLink href={user.profileHref ?? `/profile/${user.username || user.id}`} key={user.id} className="flex items-center gap-4 py-2">
               <Avatar className="h-12 w-12">
                 <AvatarImage src={user.avatar || "/placeholder.svg"} alt={user.name} />
                 <AvatarFallback>{user.name.substring(0, 2)}</AvatarFallback>
@@ -58,7 +58,7 @@ export default function PeoplePage() {
                 <h3 className="font-medium">{user.name}</h3>
                 <p className="text-sm text-gray-500">{user.location || "Boulder, CO"}</p>
               </div>
-            </Link>
+            </CanonicalLink>
           ))
         )}
       </div>

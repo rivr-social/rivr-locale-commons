@@ -8,7 +8,7 @@
 
 import { useState, useRef, useCallback } from "react"
 import Image from "next/image"
-import Link from "next/link"
+import { CanonicalLink } from "@/components/canonical-link"
 import { useRouter } from "next/navigation"
 import { Camera, ChevronRight, MapPin, Users } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -23,8 +23,12 @@ interface GroupProfileHeaderProps {
   coverImage: string
   location: string
   memberCount: number
-  /** Parent lineage, root-first — renders as a breadcrumb under the name for subgroups. */
-  lineage?: Array<{ id: string; name: string }>
+  /**
+   * Parent lineage, root-first — renders as a breadcrumb under the name for
+   * subgroups. `homeHref` is the ancestor's canonical link (local `/groups/[id]`
+   * or a federated projection's sovereign home); render with `<CanonicalLink>`.
+   */
+  lineage?: Array<{ id: string; name: string; homeHref?: string }>
   tags: string[]
   isAdmin: boolean
   children?: React.ReactNode
@@ -176,9 +180,9 @@ export function GroupProfileHeader({
               {lineage.map((ancestor, i) => (
                 <span key={ancestor.id} className="inline-flex items-center gap-1">
                   {i > 0 && <ChevronRight className="h-3.5 w-3.5 opacity-60" />}
-                  <Link href={`/groups/${ancestor.id}`} className="hover:text-foreground hover:underline">
+                  <CanonicalLink href={ancestor.homeHref ?? `/groups/${ancestor.id}`} className="hover:text-foreground hover:underline">
                     {ancestor.name}
-                  </Link>
+                  </CanonicalLink>
                 </span>
               ))}
               <ChevronRight className="h-3.5 w-3.5 opacity-60" />

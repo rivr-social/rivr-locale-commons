@@ -19,12 +19,19 @@ import { MapPin, Users, Percent } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { TypeBadge } from "@/components/type-badge"
 import { TypeIcon } from "@/components/type-icon"
-import Link from "next/link"
+import { CanonicalLink } from "@/components/canonical-link"
 import { GroupType, JoinType, type Ring, type Family, type User, type FlowPass, type GroupJoinSettings } from "@/lib/types"
 
 interface Group {
   id: string
   name: string
+  /**
+   * Canonical link target stamped by `agentToGroup`/`agentToRing`/`agentToFamily`:
+   * the local `/groups/[id]` path for a locally-homed group (incl. ring/family,
+   * which render AS groups here), else an absolute sovereign-home URL for a
+   * federated projection. Render with `<CanonicalLink>`.
+   */
+  homeHref?: string
   description: string
   members?: string[]
   avatar?: string
@@ -208,18 +215,16 @@ export function GroupFeed({
                   </Avatar>
                   <div>
                     <div>
-                      <Link
-                        href={
-                          group.type === GroupType.Ring
-                            ? `/rings/${group.id}`
-                            : group.type === GroupType.Family
-                              ? `/families/${group.id}`
-                              : `/groups/${group.id}`
-                        }
+                      {/* Groups, rings and families all render at /groups/[id] here
+                          (rings/families are group-type agents). A locally-homed entity
+                          uses its stamped local path; a federated projection routes to
+                          its sovereign home. See `resolveEntityHref`. */}
+                      <CanonicalLink
+                        href={group.homeHref ?? `/groups/${group.id}`}
                         className="text-xl font-bold hover:underline"
                       >
                         {group.name}
-                      </Link>
+                      </CanonicalLink>
                       {/* Conditional badge indicates an active qualifying flow pass. */}
                       {"flowPasses" in group && group.flowPasses?.some(pass => pass.isActive && pass.type === "percentage" && pass.value === 10) && (
                         <div className="flex items-center gap-1 mt-1">
@@ -301,7 +306,7 @@ export function GroupFeed({
               </div>
               {requiresJoinFlowPage(group) ? (
                 <Button asChild variant="secondary">
-                  <Link href={`/groups/${group.id}`}>View Group</Link>
+                  <CanonicalLink href={group.homeHref ?? `/groups/${group.id}`}>View Group</CanonicalLink>
                 </Button>
               ) : (
                 <Button

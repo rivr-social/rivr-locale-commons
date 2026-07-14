@@ -178,7 +178,8 @@ export function AgentGraph({ agentId, agentName, agentType }: AgentGraphProps) {
               id: group.id,
               label: group.name || "Subgroup",
               type: NODE_TYPE.GROUP,
-              href: `/groups/${group.id}`,
+              // Local → /groups/[id] (homeHref); a federated projection → sovereign home.
+              href: group.homeHref ?? `/groups/${group.id}`,
             })
             newLinks.push({
               id: makeLinkId(agentId, group.id),

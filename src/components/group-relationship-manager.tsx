@@ -24,6 +24,7 @@ import type { SerializedGroupRelationship } from "@/app/actions/graph"
 import { addGroupRelationshipAction, removeGroupRelationshipAction } from "@/app/actions/resource-creation/groups"
 import { agentToGroup } from "@/lib/graph-adapters"
 import type { Group } from "@/lib/types"
+import { CanonicalLink } from "@/components/canonical-link"
 import { useToast } from "@/components/ui/use-toast"
 
 interface GroupRelationshipManagerProps {
@@ -311,10 +312,10 @@ export function GroupRelationshipManager({ groupId, isCreator, isAdmin }: GroupR
                   </div>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" asChild>
-                      <a href={`/groups/${group.id}`} target="_blank" rel="noopener noreferrer">
+                      <CanonicalLink href={group.homeHref ?? `/groups/${group.id}`}>
                         <ExternalLink className="h-4 w-4 mr-1" />
                         View
-                      </a>
+                      </CanonicalLink>
                     </Button>
                     {(isCreator || isAdmin) && relationshipType !== "parent" && (
                       <Button

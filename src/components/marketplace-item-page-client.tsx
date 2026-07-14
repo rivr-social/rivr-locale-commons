@@ -6,7 +6,7 @@
 import { useEffect, useState, use } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Image from "next/image"
-import Link from "next/link"
+import { CanonicalLink } from "@/components/canonical-link"
 import { ChevronLeft, MessageCircle, Share2, Bookmark, MapPin, Calendar, Heart } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -547,7 +547,7 @@ export function MarketplaceItemPageClient({
                 {listing.ownerLabel || "Member offer"}
               </Badge>
             </div>
-            <Link href={ownerHref} className="flex items-center">
+            <CanonicalLink href={ownerHref} className="flex items-center">
               <Avatar className="h-10 w-10 mr-3">
                 <AvatarImage src={seller.avatar || "/placeholder.svg"} alt={seller.name} />
                 <AvatarFallback>{seller.name.charAt(0)}</AvatarFallback>
@@ -556,7 +556,7 @@ export function MarketplaceItemPageClient({
                 <p className="font-medium">{seller.name}</p>
                 <p className="text-sm text-muted-foreground">@{seller.username}</p>
               </div>
-            </Link>
+            </CanonicalLink>
             <div className="mt-3 flex items-center gap-2">
               {canEditOffering ? (
                 <Button variant="outline" size="sm" onClick={() => setIsEditOfferingOpen(true)}>

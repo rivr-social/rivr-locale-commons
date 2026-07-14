@@ -16,6 +16,9 @@
  * - Normalizes agent to `Project` type via `agentToProject`.
  */
 import Link from "next/link"
+import { CanonicalLink } from "@/components/canonical-link"
+import { resolveEntityHref } from "@/lib/federation/entity-link"
+import { getInstanceConfig } from "@/lib/federation/instance-config"
 import Image from "next/image"
 import { notFound } from "next/navigation"
 import type { Metadata } from "next"
@@ -195,6 +198,23 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
   const visibleMembers = members.slice(0, MAX_VISIBLE_MEMBERS)
   const overflowCount = members.length - visibleMembers.length
+
+  // Loop guard for the canonical link resolver: a home stamp pointing back at
+  // our own host is treated as local. A federated member/owner projection
+  // carries a home stamp and routes to its sovereign profile instead of a local
+  // path. Tolerates a missing instance config.
+  let selfBaseUrl: string | null = null
+  try {
+    selfBaseUrl = getInstanceConfig().baseUrl
+  } catch {
+    selfBaseUrl = null
+  }
+  const personHref = (person: { id: string; metadata?: Record<string, unknown> | null }) =>
+    resolveEntityHref(
+      person.metadata,
+      `/profile/${(person.metadata?.username as string) || person.id}`,
+      { selfBaseUrl },
+    ).href
   const structuredData = buildProjectStructuredData(project, {
     visibility: agent.visibility ?? null,
     ownerName: owner?.name ?? null,
@@ -285,8 +305,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             <CardTitle className="text-lg">Project Lead</CardTitle>
           </CardHeader>
           <CardContent>
-            <Link
-              href={`/profile/${(owner.metadata?.username as string) || owner.id}`}
+            <CanonicalLink
+              href={personHref(owner)}
               className="inline-flex items-center gap-3 hover:opacity-80 transition-opacity"
             >
               <Image
@@ -300,7 +320,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                 <p className="text-sm font-medium leading-none">{owner.name}</p>
                 <p className="text-xs text-muted-foreground mt-1">Project lead</p>
               </div>
-            </Link>
+            </CanonicalLink>
           </CardContent>
         </Card>
       ) : null}
@@ -319,9 +339,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           <CardContent>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
               {visibleMembers.map((member) => (
-                <Link
+                <CanonicalLink
                   key={member.id}
-                  href={`/profile/${(member.metadata?.username as string) || member.id}`}
+                  href={personHref(member)}
                   className="flex flex-col items-center gap-2 hover:opacity-80 transition-opacity"
                 >
                   <Image
@@ -332,7 +352,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                     className="rounded-full object-cover"
                   />
                   <span className="text-xs text-center truncate max-w-[80px]">{member.name}</span>
-                </Link>
+                </CanonicalLink>
               ))}
               {overflowCount > 0 ? (
                 <div className="flex flex-col items-center justify-center gap-2">

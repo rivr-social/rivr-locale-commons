@@ -12,6 +12,7 @@
 import { useState, useEffect, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import type { Group } from "@/lib/types"
+import { CanonicalLink } from "@/components/canonical-link"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PlusCircle, Users, LinkIcon, Unlink } from "lucide-react"
@@ -306,9 +307,9 @@ function GroupCard({
             </Avatar>
             <div>
               <CardTitle className="text-base">
-                <a href={`/groups/${group.id}`} className="hover:underline">
+                <CanonicalLink href={group.homeHref ?? `/groups/${group.id}`} className="hover:underline">
                   {group.name}
-                </a>
+                </CanonicalLink>
               </CardTitle>
               <CardDescription className="text-xs">
                 {creatorName ? `Created by ${creatorName}` : group.creatorId ? "Loading..." : "Unknown creator"}
@@ -327,7 +328,7 @@ function GroupCard({
       </CardContent>
       <CardFooter className="pt-2 flex justify-between">
         <Button variant="outline" size="sm" asChild>
-          <a href={`/groups/${group.id}`}>View Group</a>
+          <CanonicalLink href={group.homeHref ?? `/groups/${group.id}`}>View Group</CanonicalLink>
         </Button>
 
         {isAdminOrCreator && (
