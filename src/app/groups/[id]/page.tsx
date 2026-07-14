@@ -10,7 +10,7 @@ import { parseFacetedTagsFromMetadata } from "@/lib/parachute-doc"
 import { notFound } from "next/navigation"
 import type { Metadata } from "next"
 import { MessageSquare, Settings } from "lucide-react"
-import { auth } from "@/auth"
+import { getSession } from "@/lib/auth/get-session"
 import { fetchAgentFeed, fetchGroupDetail, fetchGroupLineage } from "@/app/actions/graph"
 import { agentToGroup, agentToUser } from "@/lib/graph-adapters"
 import { readGroupMembershipPlans } from "@/lib/group-memberships"
@@ -37,10 +37,13 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function GroupPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  // Unified session (cookie-aware) so an SSO-landed remote-viewer admin homed
+  // on another instance still resolves to their local actor and keeps their
+  // group admin/member affordances — bare auth() sees only NextAuth sessions.
   const [detail, activity, session] = await Promise.all([
     fetchGroupDetail(id),
     fetchAgentFeed(id, 40).catch(() => []),
-    auth(),
+    getSession(),
   ])
 
   if (!detail) {
