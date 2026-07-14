@@ -9,18 +9,23 @@
  * Data requirements:
  * - Fetches shifts, projects, and user badge IDs from the database.
  *
- * Auth: Uses a hardcoded `currentUserId` mock; no server-side auth gate.
+ * Auth: Public route. The viewer is resolved from the unified session —
+ *   NextAuth locals AND SSO-landed remote viewers (who hold only the
+ *   `rivr_remote_viewer` cookie, never a NextAuth session) — so badge
+ *   permissions reflect the real actor instead of a hardcoded mock.
  * Metadata: No `metadata` export; metadata is inherited from the layout.
  *
  * @module jobs/[id]/page
  */
+import { getSession } from "@/lib/auth/get-session"
 import { getJobById, getShifts, getProjects, getUserBadgeIds } from "@/lib/queries/resources"
 import { JobDetailClient } from "./job-detail"
 
 export default async function JobPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   const jobId = params.id as string
-  const currentUserId = "user1" // In a real app, this would come from auth
+  const session = await getSession()
+  const currentUserId = session?.user?.id ?? null
 
   // Fetch the job DIRECTLY by id (type job OR legacy shift). Resolving via
   // getShifts() alone capped at 100 rows and 404'd every older job.
@@ -28,7 +33,7 @@ export default async function JobPage(props: { params: Promise<{ id: string }> }
     getJobById(jobId),
     getShifts(),
     getProjects(),
-    getUserBadgeIds(currentUserId),
+    currentUserId ? getUserBadgeIds(currentUserId) : Promise.resolve<string[]>([]),
   ])
 
   return (
