@@ -1,0 +1,26 @@
+# RIVR image lock — SINGLE SOURCE OF TRUTH for "what is live".
+#
+# This is the anti-drift anchor. Each row pins ONE channel to ONE immutable
+# image ID (docker .Id — the content-addressed config digest), plus the local
+# tag, source git SHA, and build time. The deploy script runs EXACTLY the pinned
+# image ID for an instance's channel; the drift guard fails if any live
+# container's running image ID differs from its channel pin here.
+#
+# NO REGISTRY. RIVR builds images on the host and ships them from there (never
+# through a hub). The image ID is immutable and survives `docker save`/`load`,
+# so it is a safe cross-host anchor; mutable tags (rivr:dev etc.) are the actual
+# drift vector and are NOT trusted — only the ID is.
+#
+# Why per-channel: instances of the same app type intentionally run different
+# code (prod=main, beta=beta, dev=dev branch). Each channel pins its own ID;
+# "no drift" = every instance == its channel's pin, and every pin traces to a SHA.
+#
+# DO NOT hand-edit rows. tools/rivr-image-build.sh --pin writes them after a
+# build and they are committed. tools/rivr-deploy.sh / rivr-drift-guard.sh read them.
+#
+# Local image repo for this module (no registry host — just the name half of name:tag):
+IMAGE_REPO=rivr-locale
+#
+# Rows (TSV):  channel <TAB> image_id(sha256:..) <TAB> tag <TAB> source_sha <TAB> built_at_utc
+# channel	image_id	tag	source_sha	built_at
+prod	sha256:73367d1f498c1f3c29338450e7d23f350dc39bcaf603ae32c50f30b2ca81daac	rivr-locale:prod-ef2760b89cef	ef2760b89cefac29372b7db299cf224bfa6183fd	2026-07-10T03:56:00Z
