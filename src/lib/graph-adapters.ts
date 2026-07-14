@@ -37,6 +37,8 @@ import type {
 import { GroupType } from "@/lib/types";
 import type { AgentType } from "@/db/schema";
 import { readGroupMembershipPlans } from "@/lib/group-memberships";
+import { resolveEntityHref } from "@/lib/federation/entity-link";
+import { getInstanceConfig } from "@/lib/federation/instance-config";
 
 /**
  * Sanitize a string into a URL-safe slug.
@@ -212,6 +214,79 @@ function normalizeGroupType(rawGroupType: unknown, fallbackAgentType: string): G
 }
 
 /**
+ * Base URL of THIS instance — the loop guard for `resolveEntityHref` so a
+ * federated stamp pointing back at our own host is treated as local. Tolerates
+ * a missing/partial instance config (returns null → only obviously-remote hosts
+ * are treated as remote).
+ */
+function selfBaseUrl(): string | null {
+  try {
+    return getInstanceConfig().baseUrl;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Local route for an agent on THIS instance:
+ * project → `/projects/<id>`; person → `/profile/<username|id>`;
+ * ring → `/rings/<id>`; family → `/families/<id>`; group → `/groups/<id>`.
+ * (`/rings` and `/families` have no page here — see `agentClassGlobalFallback`.)
+ */
+function agentLocalPath(agent: SerializedAgent): string {
+  if (String(agent.type ?? "").toLowerCase() === "project") {
+    return `/projects/${agent.id}`;
+  }
+  if (agent.type === "person") {
+    const username = typeof agent.metadata?.username === "string"
+      ? agent.metadata.username.trim()
+      : "";
+    return `/profile/${username || agent.id}`;
+  }
+
+  const groupType = normalizeGroupType(
+    agent.metadata?.groupType,
+    String(agent.type ?? "").toLowerCase()
+  );
+  if (groupType === GroupType.Ring) return `/rings/${agent.id}`;
+  if (groupType === GroupType.Family) return `/families/${agent.id}`;
+  return `/groups/${agent.id}`;
+}
+
+/**
+ * Whether an unstamped (locally-homed/unknown) entity of this class must route
+ * through the global aggregator because this locale app has NO local page for
+ * it. Rings and families have no `/rings|/families` route here; groups,
+ * projects and person profiles DO render locally. A federated projection
+ * (carrying a home stamp) always routes to its sovereign home regardless.
+ */
+function agentClassGlobalFallback(agent: SerializedAgent): boolean {
+  if (String(agent.type ?? "").toLowerCase() === "project") return false;
+  if (agent.type === "person") return false;
+  const groupType = normalizeGroupType(
+    agent.metadata?.groupType,
+    String(agent.type ?? "").toLowerCase()
+  );
+  return groupType === GroupType.Ring || groupType === GroupType.Family;
+}
+
+/**
+ * Canonical href for an entity: the local route when the entity is homed on
+ * (and renderable by) THIS instance, otherwise the absolute URL on the entity's
+ * federated HOME instance (or the global aggregator when it has no local page
+ * and no home stamp). See `resolveEntityHref` / `agentClassGlobalFallback`.
+ */
+function agentCanonicalHref(
+  agent: SerializedAgent,
+  globalFallback: boolean = agentClassGlobalFallback(agent),
+): string {
+  return resolveEntityHref(agent.metadata, agentLocalPath(agent), {
+    selfBaseUrl: selfBaseUrl(),
+    globalFallback,
+  }).href;
+}
+
+/**
  * Converts a graph person agent into the frontend `User` model.
  *
  * @param {SerializedAgent} agent - Source graph agent with optional metadata.
@@ -230,7 +305,10 @@ export function agentToUser(agent: SerializedAgent): User {
     id: agent.id,
     name: agent.name,
     username: username || slugify(agent.name),
-    profileHref: `/profile/${username || agent.id}`,
+    // Canonical profile link: local path for a locally-homed person, absolute
+    // home URL for a federated/remote projection (no globalFallback — profiles
+    // render locally here).
+    profileHref: agentCanonicalHref(agent, false),
     email: agent.email ?? undefined,
     bio: agent.description ?? (meta.bio as string) ?? undefined,
     avatar: agent.image ?? "/placeholder-user.jpg",
@@ -280,6 +358,10 @@ export function agentToGroup(agent: SerializedAgent): Group {
   return {
     id: agent.id,
     name: agent.name,
+    // Canonical link: local `/groups/<id>` for a locally-homed group (route
+    // exists here), absolute sovereign-home URL for a remote federated
+    // projection. No globalFallback — groups render locally on this app.
+    homeHref: agentCanonicalHref(agent, false),
     description: agent.description ?? "",
     image: agent.image ?? "/placeholder-event.jpg",
     avatar: agent.image ?? "/placeholder-event.jpg",
@@ -397,6 +479,10 @@ export function agentToProject(agent: SerializedAgent) {
   return {
     id: agent.id,
     name: agent.name,
+    // Canonical link: local `/projects/<id>` for a locally-homed project
+    // (route exists here), absolute sovereign-home URL for a remote federated
+    // projection. No globalFallback — projects render locally on this app.
+    homeHref: agentCanonicalHref(agent, false),
     description: agent.description ?? "",
     type: "project" as const,
     image: agent.image ?? "/placeholder-project.jpg",
@@ -425,18 +511,16 @@ export function resourceToMarketplaceListing(
   ownerAgent?: SerializedAgent
 ): MarketplaceListing {
   const meta = resource.metadata ?? {};
-  const rawGroupType = String(ownerAgent?.metadata?.groupType ?? "").toLowerCase();
   const ownerIsGroup = Boolean(
     ownerAgent && ownerAgent.type !== "person"
   );
+  // Canonical owner link. Previously a ring/family owner produced a bare
+  // `/rings|/families/<id>` path that 404s (no such route here), and NO owner
+  // class routed a federated projection to its sovereign home. `agentCanonicalHref`
+  // resolves per class: group/project/person → local path (or remote home);
+  // ring/family → global aggregator when unstamped (its home when a projection).
   const ownerPath = ownerAgent
-    ? rawGroupType === "ring"
-      ? `/rings/${ownerAgent.id}`
-      : rawGroupType === "family"
-        ? `/families/${ownerAgent.id}`
-        : ownerIsGroup
-          ? `/groups/${ownerAgent.id}`
-          : `/profile/${(ownerAgent.metadata?.username as string) || ownerAgent.id}`
+    ? agentCanonicalHref(ownerAgent)
     : `/profile/${resource.ownerId}`;
 
   const seller: User = ownerAgent
@@ -690,6 +774,10 @@ export function agentToRing(agent: SerializedAgent): Ring {
   return {
     id: agent.id,
     name: agent.name,
+    // Canonical link: this app has no local `/rings/<id>` route, so an
+    // unstamped ring routes to the global aggregator (globalFallback) and a
+    // remote federated projection routes to its sovereign home.
+    homeHref: agentCanonicalHref(agent, true),
     description: agent.description ?? "",
     image: agent.image ?? "/placeholder.svg",
     memberCount: (meta.memberCount as number) ?? 0,
@@ -733,6 +821,10 @@ export function agentToFamily(agent: SerializedAgent): Family {
   return {
     id: agent.id,
     name: agent.name,
+    // Canonical link: this app has no local `/families/<id>` route, so an
+    // unstamped family routes to the global aggregator (globalFallback) and a
+    // remote federated projection routes to its sovereign home.
+    homeHref: agentCanonicalHref(agent, true),
     description: agent.description ?? "",
     image: agent.image ?? "/placeholder.svg",
     memberCount: (meta.memberCount as number) ?? 0,
