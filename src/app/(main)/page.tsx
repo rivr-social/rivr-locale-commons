@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation"
 
 /**
- * Locale instance root page.
- * Redirects to the locale's detail page.
+ * Locale instance root page — FALLBACK redirect only. The middleware issues
+ * the real HTTP 307 for `/` (a streamed in-page redirect flashes the router
+ * error boundary — React #310); this page covers requests the middleware
+ * matcher misses and the unconfigured-instance message.
  * The locale page shows: groups in this locale, events, marketplace, people.
  */
 export default function LocaleHome() {
