@@ -16,7 +16,6 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/auth";
 import { db } from "@/db";
 import {
   agents,
@@ -24,6 +23,7 @@ import {
   resources,
 } from "@/db/schema";
 import { eq, isNull, desc, and, sql, count } from "drizzle-orm";
+import { requireSiteAdmin } from "@/lib/auth/require-site-admin";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,54 +44,7 @@ export interface AdminUser {
   badgeCount: number;
 }
 
-// ─── Error codes ─────────────────────────────────────────────────────────────
-
-const AUTH_ERROR_UNAUTHORIZED = "Unauthorized";
-const AUTH_ERROR_FORBIDDEN = "Forbidden: admin privileges required";
-
-// ─── Auth helpers ─────────────────────────────────────────────────────────────
-
-async function requireAuthenticatedUserId(): Promise<string> {
-  const session = await auth();
-  const userId = session?.user?.id ?? null;
-  if (!userId) throw new Error(AUTH_ERROR_UNAUTHORIZED);
-  return userId;
-}
-
-/**
- * Verifies the current session user has platform admin privileges.
- *
- * Admin status is determined by `metadata.siteRole === "admin"` on the
- * agent record. This is the server-side enforcement that complements the
- * client-side `isSuperAdmin()` check in the UserContext.
- *
- * @returns The authenticated admin user's agent ID.
- * @throws {Error} If user is not authenticated or lacks admin privileges.
- */
-async function requireAdmin(): Promise<string> {
-  const userId = await requireAuthenticatedUserId();
-
-  const [agent] = await db
-    .select({ metadata: agents.metadata })
-    .from(agents)
-    .where(eq(agents.id, userId))
-    .limit(1);
-
-  if (!agent) {
-    throw new Error(AUTH_ERROR_UNAUTHORIZED);
-  }
-
-  const metadata =
-    agent.metadata && typeof agent.metadata === "object" && !Array.isArray(agent.metadata)
-      ? (agent.metadata as Record<string, unknown>)
-      : {};
-
-  if (metadata.siteRole !== "admin") {
-    throw new Error(AUTH_ERROR_FORBIDDEN);
-  }
-
-  return userId;
-}
+const requireAdmin = requireSiteAdmin;
 
 // ─── Agent / User Management ──────────────────────────────────────────────────
 

@@ -10,7 +10,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Shield, CheckSquare, Users, AlertCircle, CheckCircle, Clock, Building2 } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import type { JobShift, UserBadge } from "@/types/domain"
 
 interface LocaleAdminDashboardProps {
@@ -39,6 +39,10 @@ export function LocaleAdminDashboard({ jobShifts, badges, totalUsers, agentDispl
     totalBadges: 0,
     recentActivity: [] as ActivityEntry[],
   })
+
+  const getAssigneeName = useCallback((userId: string) => {
+    return agentDisplayMap[userId]?.name ?? "Unknown User"
+  }, [agentDisplayMap])
 
   useEffect(() => {
     let awaitingApproval = 0
@@ -81,11 +85,7 @@ export function LocaleAdminDashboard({ jobShifts, badges, totalUsers, agentDispl
       totalBadges: badges.length,
       recentActivity: recentActivity.slice(0, 5),
     })
-  }, [jobShifts, badges, totalUsers])
-
-  const getAssigneeName = (userId: string) => {
-    return agentDisplayMap[userId]?.name ?? "Unknown User"
-  }
+  }, [jobShifts, badges, totalUsers, getAssigneeName])
 
   const formatTimeAgo = (date: Date) => {
     const now = new Date()

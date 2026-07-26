@@ -20,6 +20,8 @@ describe("route-access", () => {
       "/search",
       "/calendar",
       "/manifest.webmanifest",
+      "/terms",
+      "/privacy",
     ];
 
     it.each(EXACT_PATHS)("marks %s as public page route", (path) => {
@@ -95,6 +97,7 @@ describe("route-access", () => {
 
     it("prefix list matches exported PUBLIC_PAGE_PREFIXES", () => {
       const EXPECTED_PREFIXES = [
+        "/docs",
         "/auth/signup",
         "/auth/reset-password",
         "/auth/forgot-password",
@@ -283,6 +286,8 @@ describe("route-access", () => {
         "/api/locations/suggest",
         "/.well-known/matrix",
         "/.well-known/universal-manifest.json",
+        "/.well-known/mcp",
+        "/api/mcp",
       ];
       expect(PUBLIC_API_PREFIXES).toEqual(EXPECTED_API_PREFIXES);
     });
