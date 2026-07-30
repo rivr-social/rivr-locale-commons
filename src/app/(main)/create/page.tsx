@@ -746,11 +746,6 @@ export default function CreatePage() {
   /**
    * Retries event creation after subscription trial is started from the gate dialog.
    */
-  const handleEventTrialStarted = () => {
-    setShowMembershipGate(false)
-    handleCreateEvent(true)
-  }
-
   const persistPendingOrganizationDraft = () => {
     if (typeof window === "undefined") return
 
@@ -783,11 +778,6 @@ export default function CreatePage() {
   const clearPendingOrganizationDraft = () => {
     if (typeof window === "undefined") return
     window.sessionStorage.removeItem(PENDING_ORG_CREATION_KEY)
-  }
-
-  const handleGroupTrialStarted = async () => {
-    setShowMembershipGate(false)
-    await handleCreateGroup()
   }
 
   /**
@@ -3393,7 +3383,6 @@ export default function CreatePage() {
         onOpenChange={setShowMembershipGate}
         requiredTier={gateRequiredTier}
         featureDescription={gateFeatureDescription}
-        onTrialStarted={gateAction === "group" ? handleGroupTrialStarted : handleEventTrialStarted}
         returnPath={gateAction === "group" ? "/create?tab=group&resumeGroupCreation=1" : undefined}
       />
     </div>
