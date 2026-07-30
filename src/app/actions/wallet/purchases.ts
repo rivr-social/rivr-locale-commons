@@ -24,7 +24,7 @@ import { resolvePostOfferingDeal } from '@/lib/post-offer-deals';
 import { getResource } from '@/lib/queries/resources';
 import { getAgent } from '@/lib/queries/agents';
 import { getOrCreateStripeCustomer, getStripe } from '@/lib/billing';
-import { buildAutomaticTax, STRIPE_TAX_CODE_DEFAULT, RIVR_TAX_BEHAVIOR } from '@/lib/stripe-tax';
+import { assertUntaxedChargePathAllowed, buildAutomaticTax, STRIPE_TAX_CODE_DEFAULT, RIVR_TAX_BEHAVIOR } from '@/lib/stripe-tax';
 import { consumeBookingSlot, hasBookableSchedule, isBookingSlotAvailable } from '@/lib/booking-slots';
 import { updateFacade, emitDomainEvent, EVENT_TYPES } from '@/lib/federation';
 import { getCurrentUserIdForWrite } from './helpers';
@@ -850,6 +850,12 @@ export async function createProvidePaymentAction(offeringId: string): Promise<{
 
       // Create PaymentIntent with destination charge
       const stripe = getStripe();
+      // Fail-closed tax tripwire (fees-audit finding A, 2026-07-30): this is a
+      // RAW PaymentIntent with no automatic_tax, so once RIVR holds an active
+      // registration a sale here would silently under-collect tax RIVR is
+      // liable for as facilitator. Refuse loudly instead — the hosted-Checkout
+      // offering lane is the tax-computing path.
+      await assertUntaxedChargePathAllowed(stripe, 'createProvidePaymentAction');
       const paymentIntent = await stripe.paymentIntents.create({
         amount: charge.totalCents,
         currency: 'usd',
