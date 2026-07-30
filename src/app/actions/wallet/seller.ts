@@ -15,6 +15,7 @@ import { updateFacade, emitDomainEvent, EVENT_TYPES } from '@/lib/federation';
 import { getCurrentUserId, getCurrentUserIdForWrite, resolveManagedWalletTarget } from './helpers';
 import { isPositiveInteger } from './types';
 import { executeConnectBankPayout } from '@/lib/connect-bank-payout';
+import { assertNoRecoveryDebt } from '@/lib/payout-debt-guard';
 
 export async function releaseTestConnectBalanceToWalletInternal(
   currentUserId: string,
@@ -389,7 +390,7 @@ export async function requestPayoutAction(
     async () => {
       const target = await resolveManagedWalletTarget(currentUserId, ownerId);
       const [wallet] = await db
-        .select({ id: wallets.id, metadata: wallets.metadata })
+        .select({ id: wallets.id, balanceCents: wallets.balanceCents, metadata: wallets.metadata })
         .from(wallets)
         .where(eq(wallets.id, target.walletId))
         .limit(1);
@@ -397,6 +398,13 @@ export async function requestPayoutAction(
       if (!wallet) {
         throw new Error('Treasury wallet not found.');
       }
+
+      // A negative balance is recovery debt from a refund or chargeback (see
+      // lib/chargeback.ts). Cash-out stays blocked until future sales net it
+      // back to zero — the Connect balance is a SEPARATE pot, so without this
+      // the debt could simply be paid around and walked away from. Kept in
+      // lockstep with global / group / person (PAY-16).
+      assertNoRecoveryDebt(wallet.balanceCents);
 
       const walletMeta = (wallet.metadata ?? {}) as Record<string, unknown>;
       const connectAccountId = walletMeta.stripeConnectAccountId as string | undefined;
